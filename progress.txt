@@ -625,3 +625,13 @@ detection, MCP retry backoff); the rest are periodic or backed by a child proces
 holds the loop open, and stay as they were. Recorded in spec 25.4.
 
 Tests: 285 passing, 0 cancelled, and each affected file verified in isolation.
+
+[2026-08-15] 0.1.2: the published 0.1.1 carried the unref bug
+
+A full-project review caught that the event-loop fix (eb9ca04) landed after 0.1.1 was published.
+Confirmed against the registry tarball itself, not the local build: the published
+PermissionManager.js still unref'd the approval timeout, so a host waiting on an approval could see
+its process exit silently instead of receiving the deny-on-timeout.
+
+0.1.2 publishes the fix; both 0.1.1 releases are deprecated pointing at it, since the CLI bundles
+the library and inherited the bug through its dependency.

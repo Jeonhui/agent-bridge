@@ -11,7 +11,7 @@ See the [Product & Functional Specification](docs/AgentBridge-Product-Spec.md) f
 
 ## Status
 
-Published at 0.1.1. The version number says what it means rather than rounding up: Claude is
+Published at 0.1.2. The version number says what it means rather than rounding up: Claude is
 verified end to end against the real CLI, Codex ships an adapter that has never completed a turn on
 the development machine, and Gemini is out. Details under provider status.
 

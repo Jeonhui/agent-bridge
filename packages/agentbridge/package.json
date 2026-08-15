@@ -1,6 +1,6 @@
 {
   "name": "@jeonhui/agentbridge",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A headless local runtime that connects installed AI agent CLIs to any program, with MCP tools and permissions",
   "keywords": [
     "agentbridge",
