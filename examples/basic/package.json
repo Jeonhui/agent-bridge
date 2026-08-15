@@ -1,0 +1,14 @@
+{
+  "name": "@agentbridge-example/basic",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AgentBridge example: basic",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "@jeonhui/agentbridge-core": "workspace:*",
+    "@jeonhui/agentbridge-provider-claude": "workspace:*"
+  }
+}

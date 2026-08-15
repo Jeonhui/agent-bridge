@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Tests and coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# Environment and secrets
+# Spec 26.3: API keys belong in OS secure storage, never in the repository.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# AgentBridge local runtime data (spec 20.1)
+# Defaults to ~/.agentbridge, but guards against pointing dataDir inside the repo during development.
+.agentbridge/
+*.db
+*.db-wal
+*.db-shm
+runtime.json
+runtime.sock
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editors and tooling
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+.claude/
+.omc/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+desktop.ini
+
+# Temporary files
+tmp/
+temp/
+*.tmp

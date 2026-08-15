@@ -1,0 +1,56 @@
+{
+  "name": "@jeonhui/agentbridge-permission",
+  "version": "0.1.0",
+  "description": "Permission policy evaluation and approval queue for AgentBridge",
+  "keywords": [
+    "agentbridge",
+    "ai-agent",
+    "mcp",
+    "claude",
+    "codex",
+    "local-first",
+    "runtime"
+  ],
+  "license": "MIT",
+  "author": "Jeonhui Lee <l06094@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jeonhui/agent-bridge.git",
+    "directory": "packages/permission"
+  },
+  "homepage": "https://github.com/Jeonhui/agent-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/Jeonhui/agent-bridge/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@jeonhui/agentbridge-core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test dist",
+    "prepublishOnly": "node -e \"if(!(process.env.npm_config_user_agent||'').includes('pnpm')){console.error('\\\\nPublish with pnpm. npm leaves the workspace: protocol in dependencies, which produces a tarball npm itself cannot install (EUNSUPPORTEDPROTOCOL).\\\\n');process.exit(1)}\" && tsc -b"
+  }
+}

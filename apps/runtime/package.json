@@ -1,0 +1,54 @@
+{
+  "name": "@jeonhui/agentbridge-cli",
+  "version": "0.1.0",
+  "description": "Runs AgentBridge as a local daemon",
+  "keywords": [
+    "agentbridge",
+    "ai-agent",
+    "mcp",
+    "claude",
+    "codex",
+    "local-first",
+    "runtime"
+  ],
+  "license": "MIT",
+  "author": "Jeonhui Lee <l06094@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jeonhui/agent-bridge.git",
+    "directory": "apps/runtime"
+  },
+  "homepage": "https://github.com/Jeonhui/agent-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/Jeonhui/agent-bridge/issues"
+  },
+  "type": "module",
+  "bin": {
+    "agentbridge": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "!dist/**/__tests__",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@jeonhui/agentbridge-core": "workspace:*",
+    "@jeonhui/agentbridge-mcp-manager": "workspace:*",
+    "@jeonhui/agentbridge-permission": "workspace:*",
+    "@jeonhui/agentbridge-provider-claude": "workspace:*",
+    "@jeonhui/agentbridge-provider-codex": "workspace:*",
+    "@jeonhui/agentbridge-provider-core": "workspace:*",
+    "@jeonhui/agentbridge-runtime": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "prepublishOnly": "node -e \"if(!(process.env.npm_config_user_agent||'').includes('pnpm')){console.error('\\\\nPublish with pnpm. npm leaves the workspace: protocol in dependencies, which produces a tarball npm itself cannot install (EUNSUPPORTEDPROTOCOL).\\\\n');process.exit(1)}\" && tsc -b"
+  }
+}

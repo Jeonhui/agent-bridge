@@ -1,0 +1,6 @@
+packages:
+  - "packages/*"
+  - "packages/provider/*"
+  - "packages/mcp/*"
+  - "apps/*"
+  - "examples/*"

@@ -1,0 +1,15 @@
+{
+  "name": "@agentbridge-example/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AgentBridge example: mcp",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "@jeonhui/agentbridge-core": "workspace:*",
+    "@jeonhui/agentbridge-provider-claude": "workspace:*",
+    "@jeonhui/agentbridge-mcp-manager": "workspace:*"
+  }
+}
