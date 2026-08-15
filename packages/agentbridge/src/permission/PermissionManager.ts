@@ -325,7 +325,9 @@ export class PermissionManager {
         this.#onAudit?.(request);
         resolve({ effect: "deny", reason: "AB-4003: the approval request timed out" });
       }, this.#timeoutMs);
-      timer.unref?.();
+      // Deliberately not unref'd. This timer is the only thing that can settle the request,
+      // and an unref'd one lets the process exit with the caller still waiting - the exact
+      // hang the deny-on-timeout rule exists to prevent (spec 25.4).
 
       this.#pending.set(request.id, { request, resolve, timer });
 

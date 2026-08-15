@@ -115,7 +115,8 @@ export class ProviderManager {
         () => resolve({ available: false, reason: `Detection timed out after ${this.#timeoutMs}ms` }),
         this.#timeoutMs,
       );
-      timer.unref?.();
+      // Not unref'd: an adapter that hangs without I/O leaves this timer as the only way
+      // detection ever returns.
     });
 
     try {

@@ -470,8 +470,9 @@ function toErrorInfo(
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    timer.unref?.();
+    // Not unref'd: a retry backoff is the only pending work between attempts, and exiting
+    // during it would abandon the reconnection silently.
+    setTimeout(resolve, ms);
   });
 }
 

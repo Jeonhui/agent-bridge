@@ -244,7 +244,7 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, sessionId: string
         ),
       ms,
     );
-    timer.unref?.();
+    // Not unref'd: an agent is blocked on this answer, so the timer must hold the loop open.
   });
 
   try {

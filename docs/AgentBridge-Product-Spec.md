@@ -1940,6 +1940,9 @@ Rules for the gateway, each of which exists because the agent is blocked while i
 
 - A host failure, a malformed request, or an unreachable gateway all resolve to a denial. Never a
   hang. (MUST)
+- The approval timeout must hold the event loop open. An unref'd timer lets the process exit with
+  the caller still waiting, which is the same hang by another route. The rule generalises: a timer
+  that is the only thing able to settle a promise is never unref'd. (MUST)
 - The gateway binds to loopback and serves one route, authenticated with a per-start token. (MUST)
 - A tool the registry cannot resolve is treated as `WRITE`, matching deny-by-default. (MUST)
 
@@ -2131,28 +2134,28 @@ external app: agent.permissions.approve(requestId) / deny(requestId)
 
 ### 29.1 In scope (Phase 1)
 
-| # | Item | Owning module | Scenario |
+| # | Item | Owning directory | Scenario |
 | --- | --- | --- | --- |
-| 1 | AgentBridge core (bootstrap, event bus) | `packages/core` | A |
-| 2 | Provider interface | `packages/provider/core` | A, B, C |
-| 3 | Claude provider | `packages/provider/claude` | A, E |
-| 4 | Codex provider | `packages/provider/codex` | B |
-| 5 | Provider discovery | `packages/provider/core/detect.ts` | A |
-| 6 | Agent sessions (create, read, interrupt, resume, stop) | `packages/core/session` | A, B, C |
-| 7 | Message streaming | `packages/core/events`, each adapter's `parse()` | A |
-| 8 | MCP client (stdio, SSE, streamable HTTP) | `packages/mcp/client` | B, C |
-| 9 | MCP server registration and removal | `packages/mcp/manager` | C |
-| 10 | MCP tool discovery | `packages/mcp/manager`, `registry` | B, C |
-| 11 | Tool Registry | `packages/mcp/registry` | B, C, E |
-| 12 | Per-session MCP binding | `packages/core/session`, `mcp/manager` | B, C |
-| 13 | MCP hot reload | `packages/mcp/manager/HotReloadWatcher.ts` | D |
-| 14 | Permission Manager and approval | `packages/permission` | B |
-| 15 | Event system (9 event types) | `packages/core/events` | A–E |
-| 16 | Local runtime API (REST + WebSocket) | `packages/runtime`, `apps/runtime` | A–E |
-| 17 | AgentBridge MCP Server | `packages/mcp/server` | E |
-| 18 | Base logging and redaction | `packages/core/logging` | All |
-| 19 | Storage interface with memory and file backends | `packages/core/storage` | All |
-| 20 | SDK (embedded and HTTP backends) | `packages/sdk` | A, C |
+| 1 | AgentBridge core (bootstrap, event bus) | `src/core` | A |
+| 2 | Provider interface | `src/provider/core` | A, B, C |
+| 3 | Claude provider | `src/provider/claude` | A, E |
+| 4 | Codex provider | `src/provider/codex` | B |
+| 5 | Provider discovery | `src/provider/core/detect.ts` | A |
+| 6 | Agent sessions (create, read, interrupt, resume, stop) | `src/core/session` | A, B, C |
+| 7 | Message streaming | `src/core/events`, each adapter's `parse()` | A |
+| 8 | MCP client (stdio, SSE, streamable HTTP) | `src/mcp/client` | B, C |
+| 9 | MCP server registration and removal | `src/mcp/manager` | C |
+| 10 | MCP tool discovery | `src/mcp/manager`, `registry` | B, C |
+| 11 | Tool Registry | `src/mcp/registry` | B, C, E |
+| 12 | Per-session MCP binding | `src/core/session`, `mcp/manager` | B, C |
+| 13 | MCP hot reload | `src/mcp/manager/HotReloadWatcher.ts` | D |
+| 14 | Permission Manager, approval queue, and the prompt hook | `src/permission` | B, ask |
+| 15 | Event system (9 event types) | `src/core/events` | A–E |
+| 16 | Local runtime API (REST + WebSocket) | `src/runtime`, `apps/runtime` | A–E |
+| 17 | AgentBridge MCP Server | `src/mcp/server` | E |
+| 18 | Base logging and redaction | `src/core/logging` | All |
+| 19 | Storage interface with memory and file backends | `src/core/storage` | All |
+| 20 | SDK (embedded and HTTP backends) | `src/sdk` | A, C |
 | 21 | Five examples | `examples/` | A–E |
 
 ### 29.2 Out of scope (Phase 2 and later)

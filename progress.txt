@@ -601,3 +601,27 @@ Asked once more whether anything was wrong, and the consolidation had left docum
 Verified after: spec TOC anchors, subsection numbering, fences, error codes, and the REST table
 against the route table (28 to 28); a fresh clone installed with a frozen lockfile, built, and ran
 285 tests.
+
+[2026-08-15] Documentation sweep, and a real bug it uncovered
+
+Asked whether the docs were all updated. Two were stale and one turned out to be a defect.
+
+Stale:
+- The MVP scope table in 29.1 still named packages/* directories that the consolidation removed.
+  It now names src/* directories, and the permission row covers the prompt hook it gained.
+- The package README shipped to npm with relative links. npm resolves those against the package
+  directory, so the specification and licence links would have 404'd on the package page. They are
+  absolute GitHub URLs now. The root README keeps relative links, which are correct on GitHub.
+
+The defect: running the suite turned up 23 cancelled tests with
+"Promise resolution is still pending but the event loop has already resolved". The approval timeout
+timer was unref'd, so when nothing else held the loop open the process exited with the caller still
+waiting - the exact hang that deny-on-timeout exists to prevent, arriving by another route. It had
+been passing only because other tests in the same process kept the loop alive.
+
+Audited every unref in the codebase against one rule: a timer that is the only thing able to settle
+a promise is never unref'd. Four were wrong (approval timeout, the MCP server's send wait, provider
+detection, MCP retry backoff); the rest are periodic or backed by a child process or server that
+holds the loop open, and stay as they were. Recorded in spec 25.4.
+
+Tests: 285 passing, 0 cancelled, and each affected file verified in isolation.

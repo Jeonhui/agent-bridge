@@ -4,10 +4,10 @@ A general-purpose local agent runtime that connects AI agents installed on your 
 
 AgentBridge ships no chat UI. Other programs consume it as a library or as a local runtime.
 
-See the [Product & Functional Specification](docs/AgentBridge-Product-Spec.md) for the full design.
+See the [Product & Functional Specification](https://github.com/Jeonhui/agent-bridge/blob/main/docs/AgentBridge-Product-Spec.md) for the full design.
 
 [![npm](https://img.shields.io/npm/v/@jeonhui/agentbridge)](https://www.npmjs.com/package/@jeonhui/agentbridge)
-[![license](https://img.shields.io/npm/l/@jeonhui/agentbridge)](LICENSE)
+[![license](https://img.shields.io/npm/l/@jeonhui/agentbridge)](https://github.com/Jeonhui/agent-bridge/blob/main/LICENSE)
 
 ## Status
 
