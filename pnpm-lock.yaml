@@ -42,9 +42,6 @@ importers:
       '@agentbridge/provider-core':
         specifier: workspace:*
         version: link:../../packages/provider/core
-      '@agentbridge/provider-gemini':
-        specifier: workspace:*
-        version: link:../../packages/provider/gemini
       '@agentbridge/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
@@ -149,15 +146,6 @@ importers:
       '@agentbridge/core':
         specifier: workspace:*
         version: link:../../core
-
-  packages/provider/gemini:
-    dependencies:
-      '@agentbridge/core':
-        specifier: workspace:*
-        version: link:../../core
-      '@agentbridge/provider-core':
-        specifier: workspace:*
-        version: link:../core
 
   packages/runtime:
     dependencies:

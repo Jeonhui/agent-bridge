@@ -35,9 +35,6 @@
       "path": "./packages/mcp/server"
     },
     {
-      "path": "./packages/provider/gemini"
-    },
-    {
       "path": "./apps/runtime"
     }
   ]

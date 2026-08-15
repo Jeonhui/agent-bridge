@@ -426,3 +426,35 @@ The manager keeps two copies: `config` as registered, which is what gets persist
 `runtimeConfig` with references expanded, which is never persisted and never returned.
 
 Tests: 287 passing.
+
+[2026-08-15] Gemini removed from the MVP
+
+Google retired the "Gemini Code Assist for individuals" sign-in the CLI used; signing in now
+redirects to Antigravity. Investigated whether Antigravity offers something to adapt: it does not.
+`antigravity-ide` is the VS Code launcher script - Microsoft copyright header, `--diff` and `--goto`
+options - and the app bundle carries a language server and a media encoder, not an agent runner.
+There is no headless CLI for a provider adapter to drive.
+
+Before removing it, installing the CLI paid off: it settled what the adapter had guessed.
+  -p and -m        correct
+  --settings       does not exist - "Unknown argument: settings"
+  -o json/stream-json   exists, so the text-mode assumption was needlessly conservative
+The MCP injection path was therefore broken outright: any Gemini session with MCP bound could not
+have worked. The real mechanism is GEMINI_CLI_HOME plus <home>/.gemini/settings.json, confirmed
+because the CLI's own error message named that exact path back. Fixed, then removed with the rest -
+the correction is recorded in spec 12.3.2 so it is not rediscovered later.
+
+Removed rather than shipped unverified: an adapter nobody can run invites bug reports for a path the
+project cannot reproduce. listAgents() no longer reports Gemini either, since listing a CLI implies
+AgentBridge can drive it, and a truthful "not supported" beats a detected entry that fails at
+session creation.
+
+Spec kept in step rather than left to drift: Gemini moved out of 29.1 and into 29.2, the MVP rows
+renumbered, scenario C marked not met with the reason, G1 qualified, the package layout marked
+planned, and the decision recorded as 33.2. The product still targets Gemini; this MVP does not
+ship it.
+
+This is risk R1 arriving earlier and harder than the table anticipated - it predicted flags and
+output formats drifting, not an authentication path being withdrawn.
+
+Tests: 272 passing.

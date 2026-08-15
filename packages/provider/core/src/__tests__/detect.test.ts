@@ -45,10 +45,10 @@ describe("detectExecutable", () => {
 });
 
 describe("listAgents (spec chapter 8)", () => {
-  it("covers the three MVP agent CLIs", () => {
+  it("covers the agent CLIs AgentBridge can actually run", () => {
     assert.deepEqual(
       BUILTIN_PROVIDERS.map((spec) => spec.id),
-      ["claude", "gemini", "codex"],
+      ["claude", "codex"],
     );
   });
 
@@ -74,9 +74,11 @@ describe("listAgents (spec chapter 8)", () => {
     assert.match(agent?.reason ?? "", /not found on PATH/);
   });
 
-  it("describes the Gemini text-mode limits, matching its adapter", () => {
-    const gemini = BUILTIN_PROVIDERS.find((spec) => spec.id === "gemini");
-    assert.equal(gemini?.capabilities.streaming, false);
-    assert.equal(gemini?.capabilities.resume, false);
+  it("does not advertise a CLI without a working adapter", () => {
+    // Listing a provider implies AgentBridge can drive it; Gemini currently cannot be driven.
+    assert.equal(
+      BUILTIN_PROVIDERS.some((spec) => spec.id === "gemini"),
+      false,
+    );
   });
 });

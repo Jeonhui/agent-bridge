@@ -1,6 +1,6 @@
 # AgentBridge
 
-A general-purpose local agent runtime that connects AI agents installed on your machine — Claude, Gemini, Codex — to any external program, and gives those agents user-defined tools through MCP.
+A general-purpose local agent runtime that connects AI agents installed on your machine — Claude and Codex today — to any external program, and gives those agents user-defined tools through MCP.
 
 AgentBridge ships no chat UI. Other programs consume it as a library or as a local runtime.
 
@@ -16,7 +16,6 @@ Early Phase 1 (MVP) implementation.
 | `@agentbridge/provider-core` | Provider contract, ProviderManager, CLI detection, process and stream plumbing | Implemented |
 | `@agentbridge/provider-claude` | Claude Code adapter: turn execution, stream parsing, resume, MCP config injection | Implemented |
 | `@agentbridge/provider-codex` | Codex CLI adapter: turn execution, event mapping, sandbox authorization | Implemented, unverified live (see below) |
-| `@agentbridge/provider-gemini` | Gemini CLI adapter, conservative text mode | Implemented, flags unverified (see below) |
 | `@agentbridge/mcp-client` | MCP client over stdio, SSE, and streamable HTTP | Implemented |
 | `@agentbridge/mcp-registry` | Tool Registry with permission inference and reload diffing | Implemented |
 | `@agentbridge/mcp-manager` | Registration, connection, hot reload, tool invocation | Implemented |
@@ -46,13 +45,13 @@ pnpm test
 ```text
 ID      NAME         STATUS     VERSION  PATH / REASON
 claude  Claude Code  installed  2.1.220  /Users/you/.local/share/mise/installs/node/24.4.1/bin/claude
-gemini  Gemini CLI   missing    -        gemini was not found on PATH
 codex   Codex CLI    installed  0.132.0  /opt/homebrew/bin/codex
 ```
 
 Detection resolves the binary against `PATH` plus the common install directories, then reads its version. It never throws: a missing or broken CLI is reported as `available: false` with a reason.
 
-Claude sessions work end to end. Gemini and Codex are detection-only for now; creating a session against them fails with `AB-1005`.
+Only CLIs AgentBridge can actually drive are listed, so a detected entry never fails at session
+creation. Claude sessions work end to end; Codex is covered under provider status below.
 
 Deleting `dist/` by hand leaves `tsconfig.tsbuildinfo` behind, and `tsc -b` will then consider the build up to date and emit nothing — tests will report zero passing. Use `pnpm clean` or `tsc -b --force` instead.
 
@@ -268,18 +267,17 @@ CLI-version problem rather than an adapter defect — `pnpm scenario:codex` show
 the failure correctly and surfacing the upstream reason. Run `codex update` and retry to verify it
 end to end.
 
-### Gemini
+### Gemini — not supported
 
-The Gemini CLI is not installed on the machine this was built on, so its output format could not be
-captured. Rather than guess a structured event schema, the adapter takes the conservative path from
-spec 12.3.2: the prompt goes in through the non-interactive flag, and whatever comes back on stdout
-becomes one message at turn end. The consequences are declared rather than hidden —
-`capabilities.streaming` and `capabilities.resume` are both false, and continuity is replayed
-history rather than a CLI session id.
+Google retired the "Gemini Code Assist for individuals" sign-in the CLI used, and sign-in now
+redirects to Antigravity, which ships a GUI IDE rather than a headless CLI. There is nothing for an
+adapter to drive on an individual account, so the adapter was removed rather than shipped
+unverified.
 
-Its mechanics are tested against a stand-in CLI: argument assembly, history replay, session-scoped
-MCP settings, empty output, non-zero exit, and interrupt. What remains unverified is the flag names.
-`promptFlag` exists so an integrator can correct the one that matters without patching the adapter.
+The CLI binary itself still runs with a `GEMINI_API_KEY`, so this is a reachable gap rather than a
+dead end. It comes back when a turn can be completed end to end. `listAgents()` deliberately does
+not report Gemini in the meantime: listing a CLI implies AgentBridge can drive it, and a truthful
+"not supported" beats a detected entry that fails at session creation.
 
 ## Persistence and logging
 

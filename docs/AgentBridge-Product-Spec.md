@@ -119,7 +119,7 @@ The target category is **local agent infrastructure**: the connection layer that
 
 ### 4.1 Product goals
 
-- **G1** — An external program can create a local Claude, Gemini, or Codex session and exchange messages in five lines of code or fewer. (MUST)
+- **G1** — An external program can create a local agent session and exchange messages in five lines of code or fewer, with the provider chosen by name. (MUST) Met for Claude; Codex and Gemini are covered in 33.2 and the provider status notes.
 - **G2** — Switching providers requires changing only the `provider` string; the session API is identical across providers. (MUST)
 - **G3** — User-authored MCP servers can be registered and removed at runtime, and each session can carry a different MCP combination. (MUST)
 - **G4** — Changes to MCP server code reach the Tool Registry and running sessions without restarting the agent session. (MUST)
@@ -479,7 +479,7 @@ agentbridge/
 │   │   │       ├── ProcessRunner.ts # child_process wrapper
 │   │   │       └── StreamParser.ts  # JSON lines parser
 │   │   ├── claude/src/ClaudeProvider.ts
-│   │   ├── gemini/src/GeminiProvider.ts
+│   │   ├── gemini/src/GeminiProvider.ts   # planned, see 33.2
 │   │   └── codex/src/CodexProvider.ts
 │   ├── mcp/
 │   │   ├── client/src/
@@ -514,7 +514,7 @@ agentbridge/
 ├── examples/
 │   ├── basic/                       # session + message
 │   ├── claude/                      # Claude-specific example
-│   ├── gemini/                      # Gemini-specific example
+│   ├── gemini/                      # planned, see 33.2
 │   ├── mcp/                         # user MCP registration + hot reload
 │   └── runtime-python/              # REST/WS client example
 └── docs/
@@ -633,12 +633,17 @@ Exact CLI flags shift between versions, so each adapter implements the **baselin
 
 #### 12.3.2 GeminiProvider
 
+Not shipped in the MVP; see 33.2 for why. The design below is what it returns to when a turn can be
+completed end to end, and the flag names have been corrected against gemini 0.55.1 rather than left
+as they were first guessed.
+
 | Aspect | Design |
 | --- | --- |
 | Detection | `gemini --version` exits 0 |
+| Authentication | An individual Code Assist sign-in no longer works; `GEMINI_API_KEY` does (33.2) |
 | Launch | Non-interactive prompt mode with stream output parsing |
 | Input | stdin or a prompt argument. Without stdin streaming, restart the process per turn |
-| MCP injection | Write `mcpServers` into a session-scoped settings file and restrict the allowed server list |
+| MCP injection | There is no `--settings` flag. Point `GEMINI_CLI_HOME` at a per-session directory and write `.gemini/settings.json` there, then restrict visibility with `--allowed-mcp-server-names` |
 | Stream parsing | On versions without structured output, accumulate text and emit a single `message` event at turn end |
 | Interrupt | Signal-based process interruption |
 | Resume | Where unsupported, expose `capabilities.resume=false` and let the core replay conversation history instead |
@@ -2145,25 +2150,24 @@ external app: agent.permissions.approve(requestId) / deny(requestId)
 | 1 | AgentBridge core (bootstrap, event bus) | `packages/core` | A |
 | 2 | Provider interface | `packages/provider/core` | A, B, C |
 | 3 | Claude provider | `packages/provider/claude` | A, E |
-| 4 | Gemini provider | `packages/provider/gemini` | C |
-| 5 | Codex provider | `packages/provider/codex` | B |
-| 6 | Provider discovery | `packages/provider/core/detect.ts` | A |
-| 7 | Agent sessions (create, read, interrupt, resume, stop) | `packages/core/session` | A, B, C |
-| 8 | Message streaming | `packages/core/events`, each adapter's `parse()` | A |
-| 9 | MCP client (stdio, SSE, streamable HTTP) | `packages/mcp/client` | B, C |
-| 10 | MCP server registration and removal | `packages/mcp/manager` | C |
-| 11 | MCP tool discovery | `packages/mcp/manager`, `registry` | B, C |
-| 12 | Tool Registry | `packages/mcp/registry` | B, C, E |
-| 13 | Per-session MCP binding | `packages/core/session`, `mcp/manager` | B, C |
-| 14 | MCP hot reload | `packages/mcp/manager/HotReloadWatcher.ts` | D |
-| 15 | Permission Manager and approval | `packages/permission` | B |
-| 16 | Event system (9 event types) | `packages/core/events` | A–E |
-| 17 | Local runtime API (REST + WebSocket) | `packages/runtime`, `apps/runtime` | A–E |
-| 18 | AgentBridge MCP Server | `packages/mcp/server` | E |
-| 19 | Base logging and redaction | `packages/core/logging` | All |
-| 20 | Storage interface with memory and file backends | `packages/core/storage` | All |
-| 21 | SDK (embedded and HTTP backends) | `packages/sdk` | A, C |
-| 22 | Five examples | `examples/` | A–E |
+| 4 | Codex provider | `packages/provider/codex` | B |
+| 5 | Provider discovery | `packages/provider/core/detect.ts` | A |
+| 6 | Agent sessions (create, read, interrupt, resume, stop) | `packages/core/session` | A, B, C |
+| 7 | Message streaming | `packages/core/events`, each adapter's `parse()` | A |
+| 8 | MCP client (stdio, SSE, streamable HTTP) | `packages/mcp/client` | B, C |
+| 9 | MCP server registration and removal | `packages/mcp/manager` | C |
+| 10 | MCP tool discovery | `packages/mcp/manager`, `registry` | B, C |
+| 11 | Tool Registry | `packages/mcp/registry` | B, C, E |
+| 12 | Per-session MCP binding | `packages/core/session`, `mcp/manager` | B, C |
+| 13 | MCP hot reload | `packages/mcp/manager/HotReloadWatcher.ts` | D |
+| 14 | Permission Manager and approval | `packages/permission` | B |
+| 15 | Event system (9 event types) | `packages/core/events` | A–E |
+| 16 | Local runtime API (REST + WebSocket) | `packages/runtime`, `apps/runtime` | A–E |
+| 17 | AgentBridge MCP Server | `packages/mcp/server` | E |
+| 18 | Base logging and redaction | `packages/core/logging` | All |
+| 19 | Storage interface with memory and file backends | `packages/core/storage` | All |
+| 20 | SDK (embedded and HTTP backends) | `packages/sdk` | A, C |
+| 21 | Five examples | `examples/` | A–E |
 
 ### 29.2 Out of scope (Phase 2 and later)
 
@@ -2177,6 +2181,7 @@ external app: agent.permissions.approve(requestId) / deny(requestId)
 | Scheduler, task queue, background agent | Phase 4 |
 | MCP marketplace, install, update, versioning, private registry | Phase 4 |
 | Cloud sync | Undecided (requires revisiting the local-first principle) |
+| Gemini provider | Removed from the MVP — see 33.2 |
 | Multi-agent orchestration | Phase 4 |
 
 ### 29.3 Definition of done
@@ -2290,13 +2295,19 @@ external program → AgentBridge → Codex → filesystem MCP → file modified 
 ### 31.3 Scenario C — Internal data lookup through a user MCP server
 
 ```text
-external program → AgentBridge → Gemini → user MCP → company data → result returned
+external program → AgentBridge → second provider → user MCP → company data → result returned
 ```
+
+**Status: not met.** The scenario exists to prove the MCP path works through a provider other than
+the one it was built against, so a passing run needs a second provider that can complete a turn.
+Gemini is out of the MVP (33.2) and Codex cannot complete a turn on the development machine, so
+neither can carry it today. The MCP path itself is proven by scenario B; what remains unproven is
+that it is provider-independent.
 
 | Aspect | Detail |
 | --- | --- |
-| Preconditions | Gemini CLI installed, a test internal MCP server returning a fixed dataset |
-| Steps | 1) `mcp.add({id:"company", transport:"stdio", command:"node", args:["./company-mcp.js"]})` 2) confirm discovery includes `customer.search` 3) `sessions.create({provider:"gemini", mcp:["company"]})` 4) `send("look up customer Hong Gil-dong")` |
+| Preconditions | A second provider able to complete a turn, plus a test internal MCP server returning a fixed dataset |
+| Steps | 1) `mcp.add({id:"company", transport:"stdio", command:"node", args:["./company-mcp.js"]})` 2) confirm discovery includes `customer.search` 3) `sessions.create({provider:"<second provider>", mcp:["company"]})` 4) `send("look up customer Hong Gil-dong")` |
 | Expected | `tool_call(customer.search)` → `tool_result` carrying the fixed dataset → the response reflects the lookup |
 | Verification | `mcp:company:customer.search` exists in the registry, and `tool_result.content` matches the expected record |
 
@@ -2385,6 +2396,27 @@ The workload is I/O-bound, not CPU-bound. Reading child process stdout, parsing 
 - Event delivery p99 misses the target at 10 concurrent sessions and the cause is traced to GC pauses.
 - Resident memory or distribution size is reported as an adoption barrier.
 - The Phase 2 GUI engine requires native modules — in which case only that module is split out as native code.
+
+### 33.2 Why Gemini is out of the MVP
+
+Google retired the "Gemini Code Assist for individuals" sign-in that the CLI used, so an individual
+account can no longer authenticate it; sign-in now redirects to the Antigravity product. Antigravity
+ships a GUI IDE rather than a headless CLI — its `antigravity-ide` entry point is the VS Code launcher
+script, taking `--diff` and `--goto`, and the app bundle contains a language server and a media
+encoder, not an agent runner. There is nothing for a provider adapter to drive.
+
+The CLI binary still works with a `GEMINI_API_KEY`, so the adapter was not wrong, only unverifiable
+on an individual account. It was removed rather than shipped unverified, because an adapter nobody
+can run is a liability: it invites bug reports for a path the project cannot reproduce.
+
+`listAgents()` no longer reports Gemini either. Listing a CLI as detected implies AgentBridge can
+drive it, and a truthful "not supported" beats a detected entry that fails at session creation.
+
+Reinstate it when a turn can be completed end to end and the `-o json` success shape has been
+captured from a live run rather than guessed.
+
+This is risk R1 arriving early and harder than written: the table anticipated flags and output
+formats drifting, not an authentication path being withdrawn.
 
 ---
 

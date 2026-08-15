@@ -10,11 +10,14 @@ export interface BuiltinProviderSpec {
 }
 
 /**
- * Descriptors for the agent CLIs the MVP targets.
+ * Descriptors for the agent CLIs AgentBridge can run.
  *
  * Detection lives here because it needs nothing but the executable name, which keeps
  * `listAgents()` free of any dependency on the adapter packages. Running a session needs the
- * adapter itself: `@agentbridge/provider-claude`, `-codex`, or `-gemini`.
+ * adapter itself: `@agentbridge/provider-claude` or `-codex`.
+ *
+ * Gemini is deliberately absent: reporting a CLI as detected implies AgentBridge can drive it,
+ * and it currently cannot. See the README.
  */
 export const BUILTIN_PROVIDERS: readonly BuiltinProviderSpec[] = [
   {
@@ -25,19 +28,6 @@ export const BUILTIN_PROVIDERS: readonly BuiltinProviderSpec[] = [
       streaming: true,
       mcp: true,
       resume: true,
-      interrupt: true,
-      workingDirectory: true,
-      permissionHook: false,
-    },
-  },
-  {
-    id: "gemini",
-    name: "Gemini CLI",
-    command: "gemini",
-    capabilities: {
-      streaming: false,
-      mcp: true,
-      resume: false,
       interrupt: true,
       workingDirectory: true,
       permissionHook: false,

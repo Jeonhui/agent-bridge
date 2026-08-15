@@ -14,7 +14,6 @@ import { McpManager } from "@agentbridge/mcp-manager";
 import { PermissionManager } from "@agentbridge/permission";
 import { ClaudeProvider } from "@agentbridge/provider-claude";
 import { CodexProvider } from "@agentbridge/provider-codex";
-import { GeminiProvider } from "@agentbridge/provider-gemini";
 import { listAgents } from "@agentbridge/provider-core";
 import { RuntimeServer, credentialsPath, writeCredentials } from "@agentbridge/runtime";
 
@@ -56,7 +55,6 @@ async function serve(): Promise<void> {
   });
   agent.registerProvider(new ClaudeProvider());
   agent.registerProvider(new CodexProvider());
-  agent.registerProvider(new GeminiProvider());
 
   const mcp = new McpManager({
     emit: (payload) => forward(agent, "mcp", payload),
