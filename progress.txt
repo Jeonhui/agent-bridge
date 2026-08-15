@@ -585,3 +585,19 @@ where to go rather than finding a package that silently stopped receiving update
 
 README now opens with a quickstart before the reference material - the shortest path from install to
 a streaming reply - plus version and licence badges.
+
+[2026-08-15] Post-consolidation sweep
+
+Asked once more whether anything was wrong, and the consolidation had left documentation behind:
+
+- README and the specification still named the eleven deprecated packages in prose and in code
+  examples, so the first thing a reader copied would have installed a deprecated package.
+- Chapter 10's module headings named packages that no longer exist. They now name directories, and
+  8.4 says explicitly that shipping as one package does not relax the dependency direction - the
+  directories are still the boundary, and an import that reverses the arrow is a defect.
+- pnpm-workspace.yaml still globbed packages/provider/* and packages/mcp/*, which are gone.
+- The runtime diagram still routed to Gemini.
+
+Verified after: spec TOC anchors, subsection numbering, fences, error codes, and the REST table
+against the route table (28 to 28); a fresh clone installed with a frozen lockfile, built, and ran
+285 tests.

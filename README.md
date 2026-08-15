@@ -269,7 +269,7 @@ constant time so a caller cannot learn one character at a time by timing rejecti
 
 ## One client, two transports
 
-`@jeonhui/agentbridge-sdk` exposes the same interface whether it runs in-process or against the runtime, so
+`@jeonhui/agentbridge/sdk` exposes the same interface whether it runs in-process or against the runtime, so
 moving a feature between them is a configuration change:
 
 ```typescript
@@ -288,7 +288,7 @@ against both backends, so a drift between them fails the build rather than surpr
 
 ## Letting an agent drive AgentBridge
 
-`@jeonhui/agentbridge-mcp-server` is the other direction: an external agent connects and uses AgentBridge as
+`@jeonhui/agentbridge/mcp-server` is the other direction: an external agent connects and uses AgentBridge as
 a set of tools — listing providers, creating sessions, calling registered tools under policy.
 
 ```typescript
