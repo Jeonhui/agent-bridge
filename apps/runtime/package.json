@@ -1,0 +1,20 @@
+{
+  "name": "@agentbridge/runtime-cli",
+  "version": "0.0.0",
+  "description": "Runs AgentBridge as a local daemon",
+  "license": "MIT",
+  "type": "module",
+  "bin": { "agentbridge": "./dist/cli.js" },
+  "files": ["dist"],
+  "dependencies": {
+    "@agentbridge/core": "workspace:*",
+    "@agentbridge/mcp-manager": "workspace:*",
+    "@agentbridge/permission": "workspace:*",
+    "@agentbridge/provider-claude": "workspace:*",
+    "@agentbridge/provider-codex": "workspace:*",
+    "@agentbridge/provider-core": "workspace:*",
+    "@agentbridge/provider-gemini": "workspace:*",
+    "@agentbridge/runtime": "workspace:*"
+  },
+  "scripts": { "build": "tsc -b" }
+}

@@ -1,0 +1,44 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/core"
+    },
+    {
+      "path": "./packages/provider/core"
+    },
+    {
+      "path": "./packages/provider/claude"
+    },
+    {
+      "path": "./packages/mcp/registry"
+    },
+    {
+      "path": "./packages/mcp/client"
+    },
+    {
+      "path": "./packages/mcp/manager"
+    },
+    {
+      "path": "./packages/permission"
+    },
+    {
+      "path": "./packages/runtime"
+    },
+    {
+      "path": "./packages/sdk"
+    },
+    {
+      "path": "./packages/provider/codex"
+    },
+    {
+      "path": "./packages/mcp/server"
+    },
+    {
+      "path": "./packages/provider/gemini"
+    },
+    {
+      "path": "./apps/runtime"
+    }
+  ]
+}

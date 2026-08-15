@@ -1,0 +1,15 @@
+{
+  "name": "@agentbridge-example/tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AgentBridge example: tools",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "@agentbridge/core": "workspace:*",
+    "@agentbridge/mcp-manager": "workspace:*",
+    "@agentbridge/permission": "workspace:*"
+  }
+}

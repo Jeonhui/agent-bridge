@@ -1,0 +1,29 @@
+{
+  "name": "@agentbridge/runtime",
+  "version": "0.0.0",
+  "description": "Local HTTP and WebSocket runtime for AgentBridge",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@agentbridge/core": "workspace:*",
+    "ws": "^8.21.3"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test dist"
+  },
+  "devDependencies": {
+    "@agentbridge/mcp-manager": "workspace:*"
+  }
+}

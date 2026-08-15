@@ -1,0 +1,40 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+import type { Logger } from "../logging/Logger.js";
+import type { SecretResolver } from "../secrets/SecretResolver.js";
+import type { Identified, Storage } from "../storage/Storage.js";
+import type { PermissionMode } from "../session/types.js";
+
+export interface AgentBridgeConfig {
+  dataDir?: string;
+  logLevel?: "trace" | "debug" | "info" | "warn" | "error";
+  defaultPermissionMode?: PermissionMode;
+  approvalTimeoutMs?: number;
+  eventRetentionPerSession?: number;
+  workingDirectory?: string;
+  /** Defaults to MemoryStorage, which suits a library embedded in an application (spec 20.2). */
+  storage?: Storage<Identified, Identified, Identified>;
+  /** Defaults to a logger at `logLevel` writing structured records to stderr. */
+  logger?: Logger;
+  /** Resolves `secret://` references (spec 26.3). Without one, using a reference is an error. */
+  secrets?: SecretResolver;
+}
+
+export type ResolvedConfig = Required<
+  Omit<AgentBridgeConfig, "workingDirectory" | "storage" | "logger" | "secrets">
+> & {
+  workingDirectory: string;
+};
+
+/** Defaults from spec 14.1 and the recommended defaults in chapter 33. */
+export function resolveConfig(config: AgentBridgeConfig = {}): ResolvedConfig {
+  return {
+    dataDir: config.dataDir ?? join(homedir(), ".agentbridge"),
+    logLevel: config.logLevel ?? "info",
+    defaultPermissionMode: config.defaultPermissionMode ?? "ask",
+    approvalTimeoutMs: config.approvalTimeoutMs ?? 120_000,
+    eventRetentionPerSession: config.eventRetentionPerSession ?? 1000,
+    workingDirectory: config.workingDirectory ?? process.cwd(),
+  };
+}

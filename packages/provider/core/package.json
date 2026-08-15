@@ -1,0 +1,25 @@
+{
+  "name": "@agentbridge/provider-core",
+  "version": "0.0.0",
+  "description": "AgentBridge provider contract and manager",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@agentbridge/core": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --test dist"
+  }
+}

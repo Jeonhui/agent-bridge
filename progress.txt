@@ -1,0 +1,428 @@
+[2026-08-15] Product & functional specification
+
+Deliverable
+- docs/AgentBridge-Product-Spec.md (2575 lines, 36 sections)
+
+Work
+- Restructured the original 39-chapter draft into a spec that development can start from. Renumbered as 1-36.
+- Added what the draft lacked: 5 personas, 12 use cases, per-module responsibility/inputs/outputs/dependencies/invariants,
+  session state machine and transition table, TypeScript contracts for 6 SDK namespaces, payload types for 9 events,
+  28 REST endpoints, the WebSocket frame protocol, 39 AB-xxxx error codes, SQLite DDL, config schemas for 3 MCP transports,
+  hot reload failure and rollback policy, permission mapping rules and approval flow, security and log redaction policy,
+  measurable NFRs, 12 risks, 22 glossary entries, scenarios A-E expanded into preconditions/steps/expected/verification,
+  and 4 examples (TS embedded, Python runtime, hot reload, custom provider).
+
+Design judgments
+- CLI flags drift between versions, so adapters check the version in detect() and narrow their surface through capabilities.
+  The spec describes a baseline interface plus fallbacks rather than asserting specific flags as fact.
+- Undecided items live in chapter 33 with defaults attached, so no TODO/TBD placeholder strings appear.
+
+Review and follow-up fixes (architect APPROVED, findings applied)
+- Declared missing types: Attachment, Unsubscribe (14.3), McpConnectionState, the AgentEvent union, AgentEventOf<E> (15.2).
+- Added 19.8 ProviderConfig (interface + field table), clarifying it lives in config.json and has no DB table.
+- Added AB-3005 to the POST /sessions error column; corrected AB-1003 from 409 to 502 (status code semantics).
+- Numbered the trailing "Final product definition" heading as 36 and added it to the TOC.
+- Restored 3 missing blank lines before thematic breaks introduced when concatenating parts.
+
+Second consistency pass (requested re-check)
+- Automated checks: TOC anchor resolution, subsection numbering, table column counts (ignoring escaped pipes),
+  H2 numbering contiguity, TS type definition/reference reconciliation, backtick type reference reconciliation,
+  AB error code reference/definition reconciliation, event union vs payload interfaces, SDK namespaces vs the 14.7 summary,
+  REST numbering contiguity.
+- 4 more fixes:
+  - ProviderHandle renamed to ProviderSessionHandle (10.2 contradicted 12.1).
+  - Defined ResolvedMcpServer (referenced by AgentStartOptions in 12.1 but never declared).
+  - Added a McpServerState TypeScript interface (19.4 had only a table, leaving McpApi return types undefined).
+  - Defined PermissionDecision (referenced by 10.6 and 25.3).
+- One addition: after 16.2, noted that SDK-to-REST mapping is 1:1 except providers.register(), which is code-only.
+- False positive confirmed: the 2 table column mismatches came from escaped `\|` inside cells.
+
+[2026-08-15] Language decision and MVP scaffold
+
+Decision: TypeScript (rationale recorded in spec 33.1)
+- A Rust core with napi-rs bindings was scaffolded and then withdrawn.
+- Reasoning: the workload is I/O-bound (process stdout, WS fan-out, SQLite), and the 28.1 targets are met either way.
+  Rust's real wins are idle memory (60-150MB down to 10-20MB) and distribution size (80-110MB down to 10-15MB).
+  Against that: MCP SDK maturity, Embedded Mode (a 6-target napi build matrix), and MVP velocity.
+- Reversible: chapters 16 and 17 are the language boundary, so replacing the core leaves runtime clients untouched.
+  Three re-evaluation triggers are recorded in 33.1.
+
+Scaffold (pnpm workspace + TS project references)
+- @agentbridge/core: errors/codes.ts (39 AB codes), AgentBridgeError, events/types.ts (9 event types),
+  EventBus (session-scoped subscription, handler exception isolation, ring buffer, replay, hasGap),
+  SequenceCounter, session/stateMachine.ts, agent/config.ts
+- @agentbridge/provider-core: the AgentProvider contract, ProviderManager (parallel detection, TTL cache, timeout, failure isolation)
+- 28 tests, all passing. Test names carry spec clause numbers so drift between spec and code is traceable.
+
+Trap worth remembering
+- Deleting dist/ by hand leaves tsconfig.tsbuildinfo behind; tsc -b then treats the build as current and emits nothing,
+  so node --test reports zero passing and it looks green. Use `pnpm clean` (tsc -b --clean) or `tsc -b --force`.
+
+[2026-08-15] Full translation to English
+- Translated every artifact: spec document, README, .gitignore comments, all source comments, error messages, test names, this file.
+- Renamed the previously Korean-titled spec file under docs/ to docs/AgentBridge-Product-Spec.md and updated the README link.
+- Error message strings in ERROR_CODES are user-facing (they surface in API responses), so those were translated too;
+  the errors.test.ts assertion on AB-1003's default message was updated to match.
+- Re-ran the full consistency suite on the English document: TOC 36 vs 36 headings with no unresolved anchors,
+  122 code fences (even, 61 tagged opens), 39 error codes all defined, 9 event types matching 9 payload interfaces,
+  28 contiguous REST endpoints, no table column mismatches, no placeholders, zero Korean characters.
+- Rebuilt and re-ran tests: 28/28 passing.
+
+[2026-08-15] Bug hunt on the implemented surface
+
+Method: read the code for defects, then proved each suspicion with a probe script against the built dist
+before claiming it. Four real bugs found, all fixed, all covered by regression tests.
+
+B1 (EventBus, root cause of three symptoms) - subscriptions were identified by the handler function
+   reference: #handlers was a Set of functions and #scopes a Map keyed by function. Reusing one function
+   for two subscriptions collapsed them.
+   - onSession("s1",h) then onSession("s2",h): the first subscription silently became s2-scoped.
+   - on("message",h) then onSession("s1","tool_call",h): the global subscription stopped firing entirely.
+   - unsubscribing one of the two removed both.
+   Attaching one logger to several sessions is ordinary usage, so this would surface immediately.
+   Fix: each subscribe() creates its own Subscription object holding {handler, scope, active}.
+
+B2 (EventBus) - a nested emit() from inside a handler was delivered depth-first, so subscribers observed
+   seq 99 before seq 1 finished. Spec 15.3 makes per-session ordering a MUST, and the Session Manager will
+   emit from handlers. Fix: emit() queues and drains, so nested events dispatch after the current one.
+
+B3 (ProviderManager) - concurrent detect() calls for one id all missed the cache and each ran the adapter.
+   With real adapters that means duplicate process spawns. Fix: in-flight promises are shared per id.
+
+B4 (ProviderManager) - a failed detection was cached for the full 60s TTL, so installing a CLI mid-session
+   stayed invisible for a minute. Fix: separate failedDetectionTtlMs (default 5s) from the success TTL.
+
+Also corrected: register() threw AB-1001 ("Unknown provider id") for a duplicate id, which is the wrong
+code. Added AB-1007 "Duplicate provider id at registration" to the spec table and ERROR_CODES (now 40).
+
+[2026-08-15] Local agent detection
+
+- packages/provider/core/src/detect.ts: resolveExecutable() searches PATH plus common install
+  directories (homebrew, /usr/local/bin, ~/.local/bin, ~/.bun/bin, ~/.volta/bin, ~/.npm-global/bin) and
+  handles .cmd/.exe/.bat on Windows. detectExecutable() runs the version probe and never throws; a missing
+  or broken CLI becomes available:false with a reason. parseVersion() extracts the first semver token
+  because CLIs pad version output with names and build info.
+- packages/provider/core/src/builtin.ts: builtinProviders() returns detection-capable descriptors for
+  claude, gemini, and codex. capabilities record the intended surface from spec 12.3, while the session
+  lifecycle methods throw AB-1005 rather than pretending to start a process.
+- scripts/list-agents.mjs + `pnpm agents` (--json supported).
+- Verified on this machine: claude 2.1.220 and codex 0.132.0 detected, gemini reported missing, 68ms total.
+
+Tests: 44 passing.
+
+[2026-08-15] Scenario A: end-to-end Claude sessions
+
+Captured the real contract first. Ran claude 2.1.220 with
+`-p "..." --output-format stream-json --verbose` and read the actual stream instead of guessing flags:
+  system/init        session_id, cwd, tools, mcp_servers, model
+  system/hook_*      hook lifecycle noise
+  assistant          message.content[] of text and tool_use blocks
+  user               message.content[] of tool_result blocks
+  rate_limit_event   quota telemetry
+  result             is_error, result, session_id, duration_ms, num_turns, total_cost_usd
+Test fixtures use these shapes, so a CLI format change fails a test rather than silently losing events.
+
+Contract fix found while implementing: AgentProvider.parse() returned AgentEvent, but an adapter cannot
+know a session's seq. Adapters now push envelope-free AgentEventPayload into an emit sink and the core
+stamps id, seq, sessionId, turnId, and timestamp. Spec 12.1 updated to match.
+
+Added
+- provider-core: StreamParser (chunk-boundary safe, reports malformed lines instead of dropping them),
+  ProcessRunner (spawn, stdin, stderr cap, SIGTERM then SIGKILL, spawn-failure reporting).
+- provider-claude: ClaudeProvider. One process per turn in --print mode, continuity through the CLI's own
+  session id via --resume, session-scoped --mcp-config file, SIGINT on interrupt, unknown line types ignored.
+- core: SessionManager (lifecycle, state transitions, envelope stamping, turn serialization) and the
+  AgentBridge entry point with providers/sessions namespaces and session-scoped event subscription.
+
+Bug caught by its own test: ProcessRunner never escalated to SIGKILL. `running` was derived from
+child.killed, but that flag means "a signal was delivered", not "the process died" — so after SIGTERM the
+guard inside the escalation timer read false and SIGKILL was unreachable. Now tracked with an explicit
+exit flag. The escalation test also had to wait for the child to install its SIGTERM handler, otherwise it
+raced and died to SIGTERM legitimately.
+
+Verified against the real CLI (pnpm scenario:a), two turns:
+  seq 2 status running / seq 3 message "ok" / seq 4 status ready
+  seq 5 status running / seq 6 message "ok" / seq 7 status ready
+  all 7 checks pass in 7901ms, including that turn 2 remembers turn 1 through --resume.
+
+Tests: 81 passing.
+
+[2026-08-15] Storage decision: no database in the MVP
+
+Dropped SQLite. Measured against what is actually stored - tens of sessions, tens of MCP servers,
+hundreds of permission rules, thousands of monthly approval records - a relational engine buys nothing.
+The one workload that would justify it is a persisted event log, but events already live in the
+per-session memory ring buffer for reconnect replay, and the persisted copy is only for audit.
+Dropping it removes a database, a migration system, and a native dependency from the critical path.
+
+Chapter 20 rewritten around a Storage interface with memory and file backends, atomic
+write-and-rename durability, and quarantine instead of refusing to boot on a corrupt document.
+Recorded as decision D10, with the trigger to revisit: persisted event history, several runtime
+processes sharing state, or state files outgrowing full-file rewrites. At that point use node:sqlite,
+built into Node 22+, so the dependency count stays at zero.
+
+[2026-08-15] MCP layer and scenario B
+
+Added three packages:
+- mcp-registry: tool index keyed {source}:{server}:{name}, permission inference (annotations, then
+  explicit overrides, then name heuristics, then WRITE as the conservative default), reload diffing,
+  per-session scoping, AB-2205 on duplicate names.
+- mcp-client: official MCP SDK wrapped so transport differences stop at that layer. Config validation
+  before anything is spawned, secret masking for API responses, paginated tools/list.
+- mcp-manager: add/connect/disconnect/remove/reload, retry with backoff, file watching with debounce,
+  mcp_status events, tool invocation. A failed server parks in error without touching other servers.
+
+Wired into the core through a structural McpBinding interface, so core still imports no MCP package
+and the dependency direction of spec 8.4 holds.
+
+Scenario B first FAILED and the failure was the valuable part. MCP injection worked - Claude
+discovered mcp__filesystem__write_file and called it twice - but the CLI's own approval prompt denied
+both attempts: "Perm denied. Need grant." In non-interactive mode that prompt has nobody to ask.
+This is the double-approval tension noted in spec 12.3.3, now resolved as a rule: AgentBridge owns the
+permission decision and passes the outcome down via preauthorizedMcpServers, which each adapter
+expresses in its own CLI vocabulary (Claude: --allowedTools mcp__<server>). Written up as spec 25.4,
+including that interactive "ask" needs a per-adapter permission hook that no adapter implements yet.
+
+Verified against the real CLI and a real stdio MCP server:
+- pnpm mcp:check - 13 checks: discovery, annotation-to-permission mapping, tool call, path-escape
+  rejection, hot reload adding a tool with the registry diff in 166ms (spec target 3s).
+- pnpm scenario:b - the agent called write_file through MCP and the file on disk changed to
+  "# scenario b\n", in 6933ms.
+
+Tests: 101 passing.
+
+[2026-08-15] Permission manager and the host-application surface
+
+Built @agentbridge/permission: glob-based rule matching over tool id, permission, session, provider,
+and path scope; priority ordering with a specificity tiebreak; approval queue with timeout, remember
+scopes (once/session/always), audit hook, and cancellation when a turn is interrupted or a session
+stops. Deny-by-default throughout - an unanswered request expires into a denial.
+
+Path-scoped rules only match calls that actually name a path inside the scope, so a rule like
+"allow filesystem writes under /workspace" cannot accidentally authorize a call with no path
+argument at all.
+
+Wired agent.tools.list/get/call and agent.permissions.* into the core through structural bindings,
+so core still imports neither the MCP nor the permission package. A denied call resolves with
+ok:false instead of throwing, which is what a host rendering a tool list actually wants.
+
+Caught by running the integration script: McpManager did not implement the full McpBinding contract
+(listTools/getTool were missing). The check script is plain JS so TypeScript never saw the mismatch;
+added a compile-time assertion test that fails the build if McpManager stops satisfying the binding.
+
+pnpm integration:check - 10 checks covering approve, policy-based denial, no prompt for an
+already-denied call, unaffected sibling tools, and unknown tool ids.
+
+[2026-08-15] Local runtime: REST and WebSocket
+
+Built @agentbridge/runtime: 18 routes, loopback binding, per-start token with constant-time
+comparison, error-code to HTTP status mapping, ephemeral-port fallback when 8760 is taken, and a
+WebSocket hub with subscribe/unsubscribe/ping, per-session and per-type filtering, and a 30s
+heartbeat that terminates connections which stop answering.
+
+Test bug worth remembering: the first WebSocket suite failed everywhere because the helper resolved
+on the "open" event and only then attached the message listener - the server sends `ready`
+immediately on upgrade, so the frame was already gone. The client now buffers from construction.
+Verified the server itself was fine before touching it, by connecting with a standalone script.
+
+Proof of the language-neutral promise (spec 4.1 G8): scripts/python-client-check.py drives a real
+Claude session from Python using only the standard library - urllib for REST, a hand-rolled
+WebSocket handshake and frame parser for events. All 12 checks pass, including the streamed message
+event arriving with content "ok".
+
+Tests: 147 passing.
+
+[2026-08-15] Storage, logging, SDK, Codex adapter, MCP server
+
+Storage: Storage interface with MemoryStorage (default, nothing survives the host process, which
+suits a library) and FileStorage (atomic write-and-rename, 0600 documents, serialized writes so
+concurrent puts cannot interleave a full-file rewrite, monthly JSONL approval rotation, corrupt
+documents quarantined to <name>.corrupt-<ts> instead of refusing to boot).
+
+Logging: structured logger where every field passes through redaction, so a caller cannot leak a
+secret by logging an object that happens to carry one. Message bodies reduce to length plus digest;
+tool arguments to key names plus digest unless values are explicitly requested. Cycles are cut
+rather than followed.
+
+SDK: one client interface over the embedded core and the local runtime. The parity suite runs the
+same seven assertions against both backends, which is what actually holds spec 10.8's "identical
+signatures" invariant together - a drift fails the build instead of surprising an integrator. The
+HTTP backend tracks the last seq per session and replays from it on reconnect.
+
+Codex adapter: event names were read out of the codex 0.132.0 binary rather than guessed
+(thread.started, turn.started/completed/failed, item.started/updated/completed), then confirmed
+against live output. Codex keeps its logs on stderr and structured events on stdout, so only stdout
+is parsed. Item kinds are matched structurally because the CLI adds kinds over time. Authorization
+maps to sandbox level rather than a tool allowlist: pre-authorized sessions get workspace-write,
+everything else read-only, and danger-full-access is never selected implicitly.
+
+Codex is NOT verified end to end on this machine. Every model is rejected with "not supported when
+using Codex with a ChatGPT account" and the CLI cannot refresh its model catalog ("unknown variant
+`max`"), which points at a CLI older than the server catalog. The adapter demonstrably spawns the
+process, parses the real stream, captures the thread id, unwraps the nested error JSON into readable
+text, and transitions the session to error - so this is an environment problem, not an adapter
+defect. Recorded rather than papered over; `codex update` is the user's call.
+
+MCP server: AgentBridge exposed as seven tools, with call-depth tracking (default max 2) so a
+session it created cannot recurse into itself, and a bounded synchronous wait on sessions_send.
+
+Scenario E passed against the real CLI: AgentBridge drove Claude, Claude called
+mcp__agentbridge__agentbridge_providers_list back into AgentBridge, and the answer named the Claude
+CLI that AgentBridge had detected. The bidirectional structure of spec 20 and 23 is closed.
+
+Tests: 217 passing.
+
+[2026-08-15] Full verification pass
+
+Ran the spec consistency suite again after several rounds of edits: TOC 36 to 36 headings with no
+unresolved anchors, contiguous numbering, no subsection gaps, balanced fences, 40 error codes all
+defined, 28 contiguous REST rows, no table column mismatches, no placeholders, no Korean.
+
+Then checked the code against what the spec claims, which is where the real finding was.
+
+FINDING: 11 of the 28 documented REST routes were not implemented - the entire MCP management
+surface (POST/GET/DELETE /mcp, connect, disconnect, reload), plus POST /providers/detect,
+POST /sessions/:id/resume, PATCH /sessions/:id/mcp, and PATCH /sessions/:id/permission-mode.
+A non-Node host could create sessions but could not register or reload an MCP server, which
+directly undercuts the language-neutral promise. Session resume, updateMcp, and setPermissionMode
+were also missing from SessionManager despite being listed in spec 13.3.
+
+Implemented all of it: SessionManager gained resume (reusing the provider's own session id),
+updateMcp (resolving before mutating, so an unusable server is rejected without touching the
+session), and setPermissionMode. AgentBridge gained an mcp namespace and providers.detect. The
+runtime now implements 28 of 28 documented routes, verified by diffing the spec table against the
+route table rather than by eye.
+
+SECOND FINDING, caught by the new route test: DELETE /mcp/:id happily removed a server that a
+session still used. McpManager's removal guard depends on a boundSessions lookup that only existed
+if the integrator passed it to the constructor - a safety check nobody would wire up is not a
+safety check. AgentBridge.attachMcp now supplies the lookup automatically, so the guard works for
+every integrator.
+
+SDK parity was extended to cover resume, setPermissionMode, and the mcp namespace, so the two
+backends stay identical as the surface grows.
+
+Verified after the changes: clean rebuild, 242 tests passing, and scenarios A, B, and E re-run
+against the real Claude CLI (8.8s, 7.6s, 8.6s).
+
+[2026-08-15] Gemini adapter and examples
+
+Gemini CLI is not installed here, so its output format could not be captured. Guessing a structured
+event schema is exactly risk R1, so the adapter takes the conservative path from spec 12.3.2
+instead: prompt in through the non-interactive flag, stdout out as one message at turn end. The
+consequences are declared, not hidden - streaming false, resume false, continuity by replayed
+history. The flag names remain unverified; promptFlag exists so an integrator can correct the one
+that matters without patching the adapter.
+
+Its mechanics are verified against a stand-in CLI: argument assembly, model passthrough, history
+replay across turns, session-scoped MCP settings limited to the bound servers, empty output as
+AB-1004, non-zero exit as AB-1006 carrying the stderr tail, and interrupt. 15 tests.
+
+Two test-harness lessons:
+- The stand-in CLI applied its failure mode to `--version` too, so detection failed before the turn
+  ever ran. A real CLI answers --version whatever else is broken; the fixture now does the same.
+- Deleting dist by hand left tsconfig.tsbuildinfo behind and tsc -b emitted nothing - the exact trap
+  recorded earlier in this file. `tsc -b --force` fixed it. Worth knowing the note was needed twice.
+
+Examples: basic (stream a reply), mcp (give an agent your own tools), tools (call tools directly
+while the host answers the approval prompt, no agent needed), runtime-python (drive a session over
+the wire). All were run, not just written.
+
+BUG FOUND BY AN EXAMPLE: examples/tools showed a deny policy failing to block a write. Approving
+with remember:"session" on a call that has no session created a rule keyed on an empty session id,
+which then matched every other sessionless call - and being more specific, it outranked the explicit
+deny at equal priority. A remembered decision now stays a one-off when there is no session to scope
+it to. Two regression tests added, plus one asserting that an explicit higher-priority policy
+outranks a remembered answer.
+
+Tests: 259 passing.
+
+[2026-08-15] Gap hunt: what the spec promises but the code did not do
+
+Checked mechanically rather than by memory, which turned up one bug and several unkept promises.
+
+BUG: the WebSocket server accepted `sinceSeq` in the subscribe frame and ignored it. The SDK sends
+it on reconnect precisely to close the gap, so a client that dropped and came back silently lost
+every event from the outage - while believing it had recovered. Spec 17.3 makes the replay a MUST.
+The hub now replays from the retained buffer and reports AB-5003 when the request falls outside
+retention. Two tests: one drops a client mid-session and asserts the missed event arrives on
+reconnect, one shrinks retention and asserts the gap is reported instead of silently skipped.
+
+MISLEADING: builtinProviders() still returned detection-only stubs whose lifecycle methods threw
+AB-1005, even though real adapters now exist, and it advertised capabilities those stubs did not
+have. Replaced with listAgents(), which does the one thing it can honestly do - report what is
+installed - and keeps detection free of any dependency on the adapter packages. The Gemini entry
+now carries the same streaming:false, resume:false that its adapter declares, so the two cannot
+drift apart quietly.
+
+MISSING: spec 11 lists apps/runtime and there was none - `pnpm serve` was a repo script, not
+something an integrator could install. Added the `agentbridge` CLI with `serve` and `agents`,
+registering all three adapters, writing credentials at 0600, logging lifecycle events, and shutting
+down cleanly on SIGINT/SIGTERM. Verified: the daemon starts, /providers answers over HTTP with all
+three adapters, and the credentials file is owner-only.
+
+Still unkept, recorded rather than hidden:
+- Storage exists and is tested but nothing writes to it. Spec 28.2 says a runtime restart restores
+  session metadata; today it does not.
+- Logger exists and is tested, and the CLI uses it, but the managers do not. The spec 27.1 event
+  list is only partly emitted.
+- `secret://` references are documented in spec 26.3 and not implemented.
+- tool_progress is defined but nothing produces it, because no adapter reports partial tool progress.
+
+Tests: 262 passing.
+
+[2026-08-15] Wiring storage and logging into the managers
+
+Storage was built and tested but nothing wrote to it, so spec 28.2's promise that a restart restores
+session metadata was not true. Now:
+
+- SessionManager persists on every mutation - create, stop, resume, updateMcp, setPermissionMode -
+  and restores at start(). A restored session comes back "stopped" rather than pretending to be
+  live, because its agent process is genuinely gone. What survives is the metadata and the
+  provider's own session id, which is what makes resume() able to continue the conversation.
+- McpManager persists registrations and reconnects them at start, attempting each independently so
+  one server failing to come back leaves the others alone.
+- PermissionManager persists rules, restores them at start (skipping any that no longer validate,
+  loudly), and appends every decision to the audit trail.
+- A storage failure never takes a live session down; it is logged and the session continues. Covered
+  by a test that throws from put().
+
+Verified by actually restarting the daemon rather than by unit test alone: run 1 creates a session
+over HTTP and is killed; run 2 starts fresh against the same data dir and GET /sessions returns the
+session with its title, working directory, and status "stopped".
+
+Logging is now wired through the managers, so the spec 27.1 event list actually fires:
+agent.started, runtime.listening, mcp.connected, mcp.reloaded, session.created, session.status,
+session.stopped, permission.requested, permission.decided, and the *_failed variants.
+
+Two things the log output itself exposed:
+- The runtime credentials path was logged under the key "credentials" and redaction masked it. The
+  path is useful in logs; only the file contents are secret. Renamed to runtimeFile.
+- session.stopped fired twice when a stopped session was stopped again during shutdown. stop() is
+  now a no-op on an already stopped session, so it neither re-enters the provider nor logs twice.
+  Two tests added.
+
+Tests: 269 passing.
+
+[2026-08-15] secret:// resolution
+
+Implemented spec 26.3. A reference looks like `secret://<service>/<account>`, and resolution happens
+at one seam per consumer: session env in SessionManager.create and resume, MCP env and headers in
+McpManager.add. Resolvers ship for the OS credential store (shelling out to `security`,
+`secret-tool`, or PowerShell so there is no native dependency), the environment, an in-memory map,
+and a chain that takes the first hit.
+
+The design decision that matters: an unresolved reference fails with AB-6004 rather than passing
+through. Handing the literal `secret://...` to a child process looks like a real value, and the
+failure then surfaces as an authentication error somewhere else entirely - hours of debugging for
+what is really a missing keychain entry.
+
+Three layers verified against the running daemon, because "the secret does not leak" is only worth
+claiming if each layer is checked:
+  API response     "DEMO_TOKEN": "***"
+  state on disk    "DEMO_TOKEN": "secret://demo/token"
+  process env      the resolved value
+The manager keeps two copies: `config` as registered, which is what gets persisted, and
+`runtimeConfig` with references expanded, which is never persisted and never returned.
+
+Tests: 287 passing.
