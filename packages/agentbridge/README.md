@@ -6,10 +6,14 @@ AgentBridge ships no chat UI. Other programs consume it as a library or as a loc
 
 See the [Product & Functional Specification](docs/AgentBridge-Product-Spec.md) for the full design.
 
+[![npm](https://img.shields.io/npm/v/@jeonhui/agentbridge)](https://www.npmjs.com/package/@jeonhui/agentbridge)
+[![license](https://img.shields.io/npm/l/@jeonhui/agentbridge)](LICENSE)
+
 ## Status
 
-Published at 0.1.0. The version says what it means: Claude is verified end to end, Codex ships an
-adapter that has not completed a turn here, and Gemini is out (see provider status below).
+Published at 0.1.1. The version number says what it means rather than rounding up: Claude is
+verified end to end against the real CLI, Codex ships an adapter that has never completed a turn on
+the development machine, and Gemini is out. Details under provider status.
 
 | Area | Status |
 | --- | --- |
@@ -47,6 +51,26 @@ Or run the daemon without installing anything into your project:
 npx @jeonhui/agentbridge-cli agents    # what is installed on this machine
 npx @jeonhui/agentbridge-cli serve     # start the local runtime
 ```
+
+## Quickstart
+
+```typescript
+import { AgentBridge } from "@jeonhui/agentbridge";
+import { ClaudeProvider } from "@jeonhui/agentbridge/claude";
+
+const agent = new AgentBridge();
+agent.registerProvider(new ClaudeProvider());
+await agent.start();
+
+const session = await agent.sessions.create({ provider: "claude" });
+session.on("message", (event) => process.stdout.write(event.content));
+
+await session.send("Summarise this project in one sentence.");
+await agent.stop();
+```
+
+Requires the `claude` CLI installed and authenticated. `npx @jeonhui/agentbridge-cli agents` reports
+what is available on the machine.
 
 ## Requirements
 
@@ -299,7 +323,8 @@ UI binds to and it should be explorable on its own.
 
 ## Provider status
 
-Claude is verified end to end. The other two are honest about what has and has not been confirmed.
+Claude is verified end to end. The others say plainly what has and has not been confirmed, because
+an adapter that looks supported and then fails is worse than one labelled unsupported.
 
 ### Codex
 

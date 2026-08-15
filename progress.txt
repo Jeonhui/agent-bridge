@@ -575,3 +575,13 @@ a single-package tarball installed into a scratch project and driven through eve
 112 kB, no test files.
 
 Tests: 285 passing.
+
+[2026-08-15] 0.1.1 published, the twelve-package release deprecated
+
+@jeonhui/agentbridge@0.1.1 and @jeonhui/agentbridge-cli@0.1.1 are on the registry. The eleven
+packages from 0.1.0 that no longer exist were deprecated with a message naming the replacement and
+how imports move, so anyone who installed during the window between the two releases gets told
+where to go rather than finding a package that silently stopped receiving updates.
+
+README now opens with a quickstart before the reference material - the shortest path from install to
+a streaming reply - plus version and licence badges.
