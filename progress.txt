@@ -521,3 +521,26 @@ Verified against the real CLI in all three modes:
 Spec 25.4 rewritten: it described this as a limitation, and now describes the mechanism.
 
 Tests: 285 passing.
+
+[2026-08-15] Published 0.1.0
+
+Twelve packages under @jeonhui/agentbridge-* on registry.npmjs.org. The repository was made public
+first, because the packages carry repository and homepage links that would otherwise 404 for anyone
+who installed them.
+
+Before flipping visibility, the tracked files were scanned for tokens, keys, and machine paths:
+nothing. Also found and fixed that .npmrc was not gitignored - a registry token in a project file
+would have gone public with the repository. History showed it had never been committed.
+
+Publishing tripped twice, both instructive:
+- npm 2FA rejected the keyring login, which a granular publish token resolved.
+- Right after publishing, `npm view` returned 404 while `npm publish` said the version already
+  existed and `npm access get status` reported it public. Write path and read replica, not a failed
+  publish. Worth remembering before re-publishing over a version that already exists.
+
+The prepublishOnly guard fired as designed during a stray `npm publish --dry-run`, refusing to
+produce the tarball npm cannot install.
+
+README now carries an Install section with the published names and a table of what each package is
+for, plus npx instructions for the daemon. It previously only explained how to work on AgentBridge,
+not how to consume it.

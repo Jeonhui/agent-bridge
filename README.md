@@ -8,7 +8,8 @@ See the [Product & Functional Specification](docs/AgentBridge-Product-Spec.md) f
 
 ## Status
 
-Early Phase 1 (MVP) implementation.
+Published at 0.1.0. The version says what it means: Claude is verified end to end, Codex ships an
+adapter that has not completed a turn here, and Gemini is out (see provider status below).
 
 | Package | Contents | Status |
 | --- | --- | --- |
@@ -25,10 +26,36 @@ Early Phase 1 (MVP) implementation.
 | `@jeonhui/agentbridge-sdk` | One client over the embedded and HTTP backends | Implemented |
 | `@jeonhui/agentbridge-cli` | `agentbridge serve` daemon with all three adapters registered | Implemented |
 
+## Install
+
+```bash
+pnpm add @jeonhui/agentbridge-core @jeonhui/agentbridge-provider-claude
+```
+
+Take only what you need. The core runs sessions on its own; the rest are additive.
+
+| Package | Add it when you want to |
+| --- | --- |
+| `@jeonhui/agentbridge-core` | Run agent sessions and consume their events |
+| `@jeonhui/agentbridge-provider-claude` | Drive the Claude Code CLI |
+| `@jeonhui/agentbridge-provider-codex` | Drive the Codex CLI |
+| `@jeonhui/agentbridge-mcp-manager` | Give agents your own tools over MCP |
+| `@jeonhui/agentbridge-permission` | Decide which tool calls may run, and show an approval UI |
+| `@jeonhui/agentbridge-runtime` | Expose everything over local REST and WebSocket |
+| `@jeonhui/agentbridge-sdk` | Write host code once and switch transports by configuration |
+| `@jeonhui/agentbridge-mcp-server` | Let an external agent drive AgentBridge |
+
+Or run the daemon without installing anything into your project:
+
+```bash
+npx @jeonhui/agentbridge-cli agents    # what is installed on this machine
+npx @jeonhui/agentbridge-cli serve     # start the local runtime
+```
+
 ## Requirements
 
 - Node.js 20 LTS or newer (22 LTS recommended)
-- pnpm 9 or newer
+- pnpm 9 or newer, for working on AgentBridge itself
 
 ## Development
 
