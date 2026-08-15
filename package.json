@@ -1,6 +1,6 @@
 {
   "name": "agentbridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Local AI Agent Runtime + MCP Infrastructure",
   "license": "MIT",
@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "tsc -b --clean",
-    "test": "pnpm build && node --test \"packages/*/dist/__tests__/*.test.js\" \"packages/*/*/dist/__tests__/*.test.js\"",
+    "test": "pnpm build && node --test \"packages/agentbridge/dist/**/__tests__/*.test.js\"",
     "agents": "pnpm build && node scripts/list-agents.mjs",
     "scenario:a": "pnpm build && node scripts/scenario-a.mjs",
     "scenario:b": "pnpm build && node scripts/scenario-b.mjs",

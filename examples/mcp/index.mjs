@@ -7,9 +7,9 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { AgentBridge } from "@jeonhui/agentbridge-core";
-import { ClaudeProvider } from "@jeonhui/agentbridge-provider-claude";
-import { McpManager } from "@jeonhui/agentbridge-mcp-manager";
+import { AgentBridge } from "@jeonhui/agentbridge";
+import { ClaudeProvider } from "@jeonhui/agentbridge/claude";
+import { McpManager } from "@jeonhui/agentbridge/mcp";
 
 const workspace = await mkdtemp(join(tmpdir(), "agentbridge-example-"));
 await writeFile(join(workspace, "notes.txt"), "before\n", "utf8");

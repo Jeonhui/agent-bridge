@@ -6,8 +6,8 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { AgentBridge } from "../packages/core/dist/index.js";
-import { CodexProvider } from "../packages/provider/codex/dist/index.js";
+import { AgentBridge } from "../packages/agentbridge/dist/core/index.js";
+import { CodexProvider } from "../packages/agentbridge/dist/provider/codex/index.js";
 
 const workspace = await mkdtemp(join(tmpdir(), "agentbridge-codex-"));
 

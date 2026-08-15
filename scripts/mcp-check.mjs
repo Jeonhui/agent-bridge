@@ -6,7 +6,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { McpManager } from "../packages/mcp/manager/dist/index.js";
+import { McpManager } from "../packages/agentbridge/dist/mcp/manager/index.js";
 
 const workspace = await mkdtemp(join(tmpdir(), "agentbridge-mcp-"));
 await writeFile(join(workspace, "README.md"), "# before\n", "utf8");

@@ -6,11 +6,11 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { AgentBridge } from "../packages/core/dist/index.js";
-import { ClaudeProvider } from "../packages/provider/claude/dist/index.js";
-import { McpManager } from "../packages/mcp/manager/dist/index.js";
-import { PermissionManager } from "../packages/permission/dist/index.js";
-import { RuntimeServer } from "../packages/runtime/dist/index.js";
+import { AgentBridge } from "../packages/agentbridge/dist/core/index.js";
+import { ClaudeProvider } from "../packages/agentbridge/dist/provider/claude/index.js";
+import { McpManager } from "../packages/agentbridge/dist/mcp/manager/index.js";
+import { PermissionManager } from "../packages/agentbridge/dist/permission/index.js";
+import { RuntimeServer } from "../packages/agentbridge/dist/runtime/index.js";
 
 const workspace = process.env.AGENTBRIDGE_WORKSPACE ?? (await mkdtemp(join(tmpdir(), "agentbridge-serve-")));
 await writeFile(join(workspace, "notes.txt"), "before\n", "utf8");

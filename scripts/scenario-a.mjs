@@ -4,8 +4,8 @@
 //
 // This talks to the real claude CLI. Usage: pnpm scenario:a
 
-import { AgentBridge } from "../packages/core/dist/index.js";
-import { ClaudeProvider } from "../packages/provider/claude/dist/index.js";
+import { AgentBridge } from "../packages/agentbridge/dist/core/index.js";
+import { ClaudeProvider } from "../packages/agentbridge/dist/provider/claude/index.js";
 
 const agent = new AgentBridge();
 agent.registerProvider(new ClaudeProvider());

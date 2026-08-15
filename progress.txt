@@ -544,3 +544,34 @@ produce the tarball npm cannot install.
 README now carries an Install section with the published names and a table of what each package is
 for, plus npx instructions for the daemon. It previously only explained how to work on AgentBridge,
 not how to consume it.
+
+[2026-08-15] Twelve packages became one
+
+The split was wrong for consumers. Nobody installs a runtime without a provider, or an MCP manager
+without its registry, so the boundaries asked for an install decision that carried no real choice -
+and getting it wrong meant a missing import at runtime rather than a helpful error.
+
+Now `@jeonhui/agentbridge` ships everything behind subpath exports, so the boundaries stay visible
+where they help (in imports) and disappear where they did not (in installs):
+
+  @jeonhui/agentbridge              core
+  @jeonhui/agentbridge/claude       adapters
+  @jeonhui/agentbridge/mcp          MCP manager
+  @jeonhui/agentbridge/permission   policy and approvals
+  @jeonhui/agentbridge/runtime      REST and WebSocket
+  @jeonhui/agentbridge/sdk          one client over both transports
+
+The CLI stays separate as @jeonhui/agentbridge-cli, since it is a binary rather than a library.
+
+Internal module boundaries are unchanged: the directories under src/ are still what the dependency
+rules in spec 8.4 govern, and cross-directory imports became relative paths rather than disappearing.
+
+One thing worth keeping: the tests reached shared fixtures through a counted stack of `../`, which
+broke the moment the layout moved. They now find the repository root by walking up until the
+fixtures appear, so the next move will not touch them.
+
+Verified after the merge: 285 tests, the MCP and integration checks, the tools example, the CLI, and
+a single-package tarball installed into a scratch project and driven through every subpath.
+112 kB, no test files.
+
+Tests: 285 passing.

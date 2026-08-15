@@ -9,22 +9,7 @@
   ],
   "references": [
     {
-      "path": "../../packages/core"
-    },
-    {
-      "path": "../../packages/mcp/manager"
-    },
-    {
-      "path": "../../packages/permission"
-    },
-    {
-      "path": "../../packages/provider/claude"
-    },
-    {
-      "path": "../../packages/provider/codex"
-    },
-    {
-      "path": "../../packages/runtime"
+      "path": "../../packages/agentbridge"
     }
   ]
 }

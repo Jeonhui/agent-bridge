@@ -1,6 +1,6 @@
 {
   "name": "@jeonhui/agentbridge-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Runs AgentBridge as a local daemon",
   "keywords": [
     "agentbridge",
@@ -39,13 +39,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@jeonhui/agentbridge-core": "workspace:*",
-    "@jeonhui/agentbridge-mcp-manager": "workspace:*",
-    "@jeonhui/agentbridge-permission": "workspace:*",
-    "@jeonhui/agentbridge-provider-claude": "workspace:*",
-    "@jeonhui/agentbridge-provider-codex": "workspace:*",
-    "@jeonhui/agentbridge-provider-core": "workspace:*",
-    "@jeonhui/agentbridge-runtime": "workspace:*"
+    "@jeonhui/agentbridge": "workspace:*"
   },
   "scripts": {
     "build": "tsc -b",

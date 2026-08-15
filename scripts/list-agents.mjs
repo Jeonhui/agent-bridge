@@ -2,7 +2,7 @@
 // Prints the agent CLIs detected on this machine.
 // Usage: pnpm agents [--json]
 
-import { listAgents } from "../packages/provider/core/dist/index.js";
+import { listAgents } from "../packages/agentbridge/dist/provider/core/index.js";
 
 const asJson = process.argv.includes("--json");
 

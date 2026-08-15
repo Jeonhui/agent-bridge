@@ -5,9 +5,9 @@
 // Closes the bidirectional loop: AgentBridge drives an agent, and that agent calls back into
 // AgentBridge through its own MCP server. Usage: pnpm scenario:e
 
-import { AgentBridge } from "../packages/core/dist/index.js";
-import { ClaudeProvider } from "../packages/provider/claude/dist/index.js";
-import { McpManager } from "../packages/mcp/manager/dist/index.js";
+import { AgentBridge } from "../packages/agentbridge/dist/core/index.js";
+import { ClaudeProvider } from "../packages/agentbridge/dist/provider/claude/index.js";
+import { McpManager } from "../packages/agentbridge/dist/mcp/manager/index.js";
 
 const agent = new AgentBridge({ defaultPermissionMode: "allow" });
 agent.registerProvider(new ClaudeProvider());

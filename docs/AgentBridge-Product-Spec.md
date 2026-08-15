@@ -445,81 +445,38 @@ agentbridge/
 ├── pnpm-workspace.yaml
 ├── tsconfig.base.json
 ├── packages/
-│   ├── core/
-│   │   ├── src/
-│   │   │   ├── index.ts             # AgentBridge class, public entry point
-│   │   │   ├── agent/
-│   │   │   │   ├── AgentBridge.ts
-│   │   │   │   └── config.ts        # AgentBridgeConfig definition and validation
-│   │   │   ├── session/
-│   │   │   │   ├── SessionManager.ts
-│   │   │   │   ├── Session.ts       # session facade (send/interrupt/stop)
-│   │   │   │   └── stateMachine.ts  # transition rules
-│   │   │   ├── events/
-│   │   │   │   ├── EventBus.ts
-│   │   │   │   ├── types.ts         # AgentEvent union
-│   │   │   │   └── sequence.ts      # seq assignment
-│   │   │   ├── storage/
-│   │   │   │   ├── Storage.ts       # interface and repository contract
-│   │   │   │   ├── MemoryStorage.ts
-│   │   │   │   └── FileStorage.ts   # atomic JSON documents
-│   │   │   ├── logging/
-│   │   │   │   ├── Logger.ts
-│   │   │   │   └── redaction.ts     # sensitive-value masking
-│   │   │   └── errors/
-│   │   │       ├── AgentBridgeError.ts
-│   │   │       └── codes.ts         # AB-xxxx definitions
-│   │   └── package.json
-│   ├── provider/
-│   │   ├── core/src/
-│   │   │   ├── AgentProvider.ts     # interface contract
-│   │   │   ├── ProviderManager.ts
-│   │   │   ├── detect.ts            # PATH lookup and version checks
-│   │   │   └── process/
-│   │   │       ├── ProcessRunner.ts # child_process wrapper
-│   │   │       └── StreamParser.ts  # JSON lines parser
-│   │   ├── claude/src/ClaudeProvider.ts
-│   │   ├── gemini/src/GeminiProvider.ts   # planned, see 33.2
-│   │   └── codex/src/CodexProvider.ts
-│   ├── mcp/
-│   │   ├── client/src/
-│   │   │   ├── McpClient.ts
-│   │   │   └── transports/{stdio,sse,streamableHttp}.ts
-│   │   ├── server/src/
-│   │   │   ├── AgentBridgeMcpServer.ts
-│   │   │   └── tools/{filesystem,process,session}.ts
-│   │   ├── manager/src/
-│   │   │   ├── McpManager.ts
-│   │   │   ├── Connection.ts
-│   │   │   └── HotReloadWatcher.ts
-│   │   └── registry/src/ToolRegistry.ts
-│   ├── permission/src/
-│   │   ├── PermissionManager.ts
-│   │   ├── policy.ts                # ask/allow/deny evaluation
-│   │   ├── mapping.ts               # tool → permission rules
-│   │   └── ApprovalQueue.ts
-│   ├── runtime/src/
-│   │   ├── server.ts                # HTTP server bootstrap
-│   │   ├── routes/{providers,sessions,mcp,tools,permissions}.ts
-│   │   ├── ws/{server.ts,protocol.ts}
-│   │   └── auth.ts                  # local token verification
-│   └── sdk/src/
-│       ├── index.ts
-│       ├── backends/{embedded.ts,http.ts}
-│       └── types.ts                 # re-exported public types
+│   └── agentbridge/                 # the published package, @jeonhui/agentbridge
+│       ├── src/
+│       │   ├── core/                # AgentBridge, sessions, events, errors, storage, logging, secrets
+│       │   ├── provider/
+│       │   │   ├── core/            # AgentProvider contract, detection, process and stream plumbing
+│       │   │   ├── claude/          # Claude Code adapter
+│       │   │   └── codex/           # Codex CLI adapter
+│       │   ├── mcp/
+│       │   │   ├── client/          # transports: stdio, SSE, streamable HTTP
+│       │   │   ├── registry/        # Tool Registry and permission inference
+│       │   │   ├── manager/         # registration, connection, hot reload
+│       │   │   └── server/          # AgentBridge exposed as an MCP server
+│       │   ├── permission/          # policy, approval queue, prompt hook gateway
+│       │   ├── runtime/             # REST and WebSocket server
+│       │   └── sdk/                 # embedded and HTTP backends behind one interface
+│       └── bin/approval-mcp.mjs     # the permission prompt tool the agent CLI launches
 ├── apps/
-│   └── runtime/                     # runnable daemon (bin: agentbridge)
-│       ├── src/cli.ts
-│       └── package.json
+│   └── runtime/                     # @jeonhui/agentbridge-cli, the `agentbridge` daemon
 ├── examples/
 │   ├── basic/                       # session + message
-│   ├── claude/                      # Claude-specific example
-│   ├── gemini/                      # planned, see 33.2
 │   ├── mcp/                         # user MCP registration + hot reload
+│   ├── tools/                       # calling tools with host-side approval
 │   └── runtime-python/              # REST/WS client example
 └── docs/
     └── AgentBridge-Product-Spec.md
 ```
+
+The MVP shipped as twelve packages and was consolidated into one before release. Nobody installs a
+runtime without a provider, or an MCP manager without its registry, so the split asked consumers to
+make an install decision that carried no choice. Subpath exports keep the boundaries visible in
+imports; the directories above are still the module boundaries the dependency rules in 8.4 govern.
+
 
 ---
 
