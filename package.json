@@ -19,7 +19,8 @@
     "integration:check": "pnpm build && node scripts/integration-check.mjs",
     "serve": "pnpm build && node scripts/runtime-serve.mjs",
     "scenario:codex": "pnpm build && node scripts/scenario-codex.mjs",
-    "scenario:e": "pnpm build && node scripts/scenario-e.mjs"
+    "scenario:e": "pnpm build && node scripts/scenario-e.mjs",
+    "scenario:ask": "pnpm build && node scripts/scenario-ask.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

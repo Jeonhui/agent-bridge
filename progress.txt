@@ -486,3 +486,38 @@ End-to-end proof: nine packages packed, installed into a scratch project with pl
 through the SDK's HTTP backend against a live runtime. Providers listed, error table intact.
 
 Tests: 272 passing.
+
+[2026-08-15] The ask hook: approval that reaches an agent's own tool calls
+
+Until now `ask` only covered calls the host made itself. An agent's own tool calls were settled by
+the CLI's internal prompt, which in non-interactive mode denies - so a desktop app wanting an
+approval dialog got nothing to show. That was the largest gap in the primary use case.
+
+The mechanism was found rather than guessed: `--permission-prompt-tool` does not appear in
+`claude --help`, but the binary carries it 19 times alongside `canUseTool` 139 times, and the strings
+spell out the contract - "must be an MCP tool", "a tool_name+input wire", answered with
+behavior:"allow" plus updatedInput, or behavior:"deny" plus a message.
+
+The awkward part is that the CLI runs the prompt tool in its own process, so a decision has to cross
+a process boundary to reach the host. Three pieces:
+- ApprovalGateway: a loopback endpoint with a per-start token and exactly one route.
+- bin/approval-mcp.mjs: a one-tool MCP server the CLI launches, forwarding to the gateway.
+- The Claude adapter injects that server and passes --permission-prompt-tool.
+
+Every failure path resolves to a denial, because the agent is blocked while it waits: an unreachable
+gateway, a malformed request, a throwing host callback. A hang there would freeze the turn with no
+way out. A tool the registry cannot resolve is treated as WRITE.
+
+autoApprove(true) answers everything without asking. It installs a highest-priority allow rule
+rather than a parallel switch, so it shows up in listPolicies() and is lifted the same way it was
+set - a hidden boolean that silently allows everything is exactly the kind of thing that should be
+visible.
+
+Verified against the real CLI in all three modes:
+  approve  prompts=1  file="approved write"
+  deny     prompts=1  file="before"
+  auto     prompts=0  file="approved write"
+
+Spec 25.4 rewritten: it described this as a limitation, and now describes the mechanism.
+
+Tests: 285 passing.

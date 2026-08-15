@@ -68,6 +68,14 @@ export interface PermissionBinding {
   cancelSession(sessionId: string, reason?: string): void;
   /** Reloads rules written by a previous process. */
   restore?(): Promise<unknown[]>;
+  /**
+   * Describes the MCP tool an agent should consult before each tool call, starting whatever
+   * machinery that needs. Returning undefined means the provider gets no hook and `ask` falls
+   * back to the CLI's own prompt (spec 25.4).
+   */
+  promptTool?(sessionId: string): Promise<
+    { server: Record<string, unknown>; toolName: string } | undefined
+  >;
 }
 
 export interface ToolCallOptions {
@@ -128,6 +136,8 @@ export class AgentBridge {
       defaultWorkingDirectory: this.#config.workingDirectory,
       defaultPermissionMode: this.#config.defaultPermissionMode,
       resolveMcp: (serverIds) => this.#mcp?.resolveForSession(serverIds) ?? [],
+      permissionPrompt: (sessionId) =>
+        this.#permissions?.promptTool?.(sessionId) ?? Promise.resolve(undefined),
     });
   }
 

@@ -54,6 +54,17 @@ export interface AgentStartOptions {
    * and each adapter expresses it in that CLI's vocabulary. An empty list authorizes nothing.
    */
   preauthorizedMcpServers?: string[];
+  /**
+   * An MCP tool the agent must consult before running a tool call.
+   *
+   * This is how `ask` reaches an agent's own tool calls: the CLI runs the prompt tool in its own
+   * process and blocks on the answer, so the decision travels back to the host rather than being
+   * settled by the CLI's built-in prompt, which has nobody to ask in non-interactive mode.
+   */
+  permissionPrompt?: {
+    server: ResolvedMcpServer;
+    toolName: string;
+  };
 }
 
 export interface ProviderSessionHandle {

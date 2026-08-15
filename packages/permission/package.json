@@ -34,6 +34,7 @@
   "files": [
     "dist",
     "!dist/**/__tests__",
+    "bin",
     "README.md",
     "LICENSE"
   ],
@@ -44,7 +45,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@jeonhui/agentbridge-core": "workspace:*"
+    "@jeonhui/agentbridge-core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0"
   },
   "scripts": {
     "build": "tsc -b",

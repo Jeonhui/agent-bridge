@@ -219,12 +219,23 @@ export class ClaudeProvider implements AgentProvider {
       args.push("--allowedTools", ...preauthorized.map((id) => `mcp__${id}`));
     }
 
+    // Undocumented in --help but present in the binary: the CLI calls this MCP tool for every
+    // tool call and waits for {behavior, updatedInput|message}.
+    const prompt = session.options.permissionPrompt;
+    if (prompt) {
+      args.push("--permission-prompt-tool", `mcp__${prompt.server.id}__${prompt.toolName}`);
+    }
+
     return args;
   }
 
   /** Writes a session-scoped MCP config file, the injection path described in spec 12.3.1. */
   async #writeMcpConfig(session: SessionRuntime): Promise<string | undefined> {
-    const servers = session.options.mcpServers ?? [];
+    const prompt = session.options.permissionPrompt;
+    const servers = [
+      ...(session.options.mcpServers ?? []),
+      ...(prompt ? [prompt.server] : []),
+    ];
     if (servers.length === 0) return undefined;
 
     const dir = session.tempDir ?? (await mkdtemp(join(tmpdir(), "agentbridge-claude-")));

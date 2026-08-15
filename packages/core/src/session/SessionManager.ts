@@ -25,6 +25,7 @@ export interface SessionProvider {
     resumeToken?: string;
     mcpServers?: unknown[];
     preauthorizedMcpServers?: string[];
+    permissionPrompt?: { server: unknown; toolName: string };
   }): Promise<{ sessionId: string; providerId: string; nativeSessionId?: string }>;
   send(
     handle: { sessionId: string; providerId: string; nativeSessionId?: string },
@@ -72,6 +73,10 @@ export interface SessionManagerOptions {
   resolveMcp?: (serverIds: string[]) => unknown[];
   /** Resolves secret:// references in session environment variables (spec 26.3). */
   secrets?: SecretResolver;
+  /** Supplies the permission prompt tool for sessions in `ask` mode (spec 25.4). */
+  permissionPrompt?: (
+    sessionId: string,
+  ) => Promise<{ server: unknown; toolName: string } | undefined>;
 }
 
 /** Minimal logging surface, declared structurally so core stays dependency-free. */
@@ -104,6 +109,9 @@ export class SessionManager {
   readonly #storage: Repository<PersistedSession> | undefined;
   readonly #logger: SessionLogger | undefined;
   readonly #secrets: SecretResolver | undefined;
+  readonly #permissionPrompt:
+    | ((sessionId: string) => Promise<{ server: unknown; toolName: string } | undefined>)
+    | undefined;
 
   constructor(options: SessionManagerOptions) {
     this.#providers = options.providers;
@@ -114,6 +122,7 @@ export class SessionManager {
     this.#storage = options.storage;
     this.#logger = options.logger;
     this.#secrets = options.secrets;
+    this.#permissionPrompt = options.permissionPrompt;
   }
 
   /**
@@ -204,6 +213,10 @@ export class SessionManager {
     // re-prompt: its own prompt resolves to a denial in non-interactive mode (spec 25.3).
     const preauthorized = info.permissionMode === "allow" ? info.mcpServers : [];
 
+    // Under "ask", the decision has to reach the host, which needs the prompt hook (spec 25.4).
+    const permissionPrompt =
+      info.permissionMode === "ask" ? await this.#permissionPrompt?.(id) : undefined;
+
     try {
       // References resolve here, so the stored session keeps `secret://` and only the child
       // process ever sees the real value (spec 26.3).
@@ -213,6 +226,7 @@ export class SessionManager {
         sessionId: id,
         ...(mcpServers.length > 0 ? { mcpServers } : {}),
         ...(preauthorized.length > 0 ? { preauthorizedMcpServers: preauthorized } : {}),
+        ...(permissionPrompt ? { permissionPrompt } : {}),
         ...(workingDirectory ? { workingDirectory } : {}),
         ...(env ? { env } : {}),
         ...(options.model ? { model: options.model } : {}),

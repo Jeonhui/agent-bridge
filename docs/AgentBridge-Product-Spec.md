@@ -1954,16 +1954,45 @@ than letting the two systems negotiate:
 | Session `permissionMode` | What AgentBridge sends the CLI | Effect |
 | --- | --- | --- |
 | `allow` | The bound MCP servers, pre-authorized (`preauthorizedMcpServers`) | The agent may call those servers' tools without a CLI prompt |
-| `ask` | Nothing pre-authorized | The CLI's own prompt applies, which in non-interactive mode denies. Interactive approval requires the permission hook below |
+| `ask` | A permission prompt tool (`permissionPrompt`) | The agent consults AgentBridge before each tool call, and the host decides |
 | `deny` | Nothing pre-authorized | Tool calls fail |
 
 Each adapter expresses this in its own CLI's vocabulary; the core never learns the flag names. For
-Claude Code that is `--allowedTools mcp__<server>`.
+Claude Code that is `--allowedTools mcp__<server>` and `--permission-prompt-tool`.
 
-Interactive `ask` — pausing a live turn, emitting `permission_request`, and resuming on the external
-app's decision — requires the CLI to delegate each tool call back to AgentBridge. Providers expose
-whether they can do this through `capabilities.permissionHook`. Until an adapter implements it,
-`ask` behaves as described above and the limitation is reported at session creation. (MUST)
+#### The prompt hook
+
+An agent CLI runs the prompt tool as an MCP server in its own process and blocks on the answer, so
+the decision has to cross a process boundary to reach the host:
+
+```text
+agent decides to call a tool
+   ▼
+CLI invokes the permission prompt tool (an MCP server AgentBridge injected)
+   ▼
+that process POSTs to the approval gateway: loopback, token minted per start
+   ▼
+PermissionManager.authorize() → permission_request event
+   ▼
+host approves or denies → { behavior: "allow", updatedInput } | { behavior: "deny", message }
+   ▼
+the CLI runs or refuses the tool call
+```
+
+Rules for the gateway, each of which exists because the agent is blocked while it waits:
+
+- A host failure, a malformed request, or an unreachable gateway all resolve to a denial. Never a
+  hang. (MUST)
+- The gateway binds to loopback and serves one route, authenticated with a per-start token. (MUST)
+- A tool the registry cannot resolve is treated as `WRITE`, matching deny-by-default. (MUST)
+
+Providers advertise support through `capabilities.permissionHook`. Where an adapter does not
+implement it, `ask` falls back to the CLI's own prompt, which denies in non-interactive mode; the
+limitation is reported rather than hidden. (MUST)
+
+`autoApprove(true)` answers every request without asking. It installs a highest-priority allow rule
+rather than a separate switch, so it appears in `listPolicies()` and is lifted the same way it was
+set. (SHOULD)
 
 ### 25.5 Approval flow
 

@@ -118,10 +118,34 @@ const session = await agent.sessions.create({
 });
 ```
 
-`permissionMode` matters here. Agent CLIs run their own approval prompt, and in non-interactive mode
-that prompt has nobody to ask, so it denies. Under `allow`, AgentBridge pre-authorizes the bound
-servers so the agent can actually call them; under `ask` the CLI's prompt applies and MCP tool calls
-fail until an adapter implements the permission hook. See spec 25.4.
+`permissionMode` decides who answers. Under `allow`, AgentBridge pre-authorizes the bound servers.
+Under `ask`, the agent consults AgentBridge before each of its own tool calls and your host answers:
+
+```typescript
+const permissions = new PermissionManager({ promptHook: { enabled: true } });
+
+agent.on("permission_request", (event) => {
+  // The agent wanted this, not your code. Deciding here decides the agent's call.
+  showDialog(event.tool, event.permissions, {
+    onAllow: () => agent.permissions.approve(event.requestId),
+    onDeny: () => agent.permissions.deny(event.requestId),
+  });
+});
+
+permissions.autoApprove(true);   // or answer everything with yes
+```
+
+`pnpm scenario:ask [approve|deny|auto]` proves it against the real CLI:
+
+```text
+[host] asked about mcp__filesystem__write_file (WRITE)
+mode=approve  prompts=1  file="approved write"
+mode=deny     prompts=1  file="before"
+mode=auto     prompts=0  file="approved write"
+```
+
+The agent blocks while waiting, so a host failure, a malformed request, or an unreachable gateway
+all resolve to a denial rather than a hang. See spec 25.4.
 
 `pnpm scenario:b` proves the whole path against the real CLI and a real MCP server:
 

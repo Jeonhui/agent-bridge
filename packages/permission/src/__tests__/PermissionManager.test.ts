@@ -227,3 +227,62 @@ describe("PermissionManager remember scoping", () => {
     assert.equal((await manager.authorize({ ...call, permissions: ["WRITE"], mode: "ask" })).effect, "deny");
   });
 });
+
+describe("permission prompt hook (spec 25.4)", () => {
+  it("returns no hook when it is disabled, so ask degrades visibly", async () => {
+    const { manager } = harness();
+    assert.equal(await manager.promptTool("s1"), undefined);
+  });
+
+  it("describes an MCP server the agent can be pointed at", async () => {
+    const manager = new PermissionManager({ promptHook: { enabled: true } });
+    const hook = await manager.promptTool("s1");
+
+    assert.equal(hook?.toolName, "permission_prompt");
+    const server = hook?.server as { id: string; transport: string; env: Record<string, string> };
+    assert.equal(server.id, "agentbridge_approval");
+    assert.equal(server.transport, "stdio");
+    assert.match(server.env["AGENTBRIDGE_APPROVAL_URL"] ?? "", /^http:\/\/127\.0\.0\.1:\d+$/);
+    assert.equal(server.env["AGENTBRIDGE_SESSION_ID"], "s1");
+    await manager.close();
+  });
+
+  it("reuses one gateway across sessions", async () => {
+    const manager = new PermissionManager({ promptHook: { enabled: true } });
+    const first = (await manager.promptTool("s1"))?.server as { env: Record<string, string> };
+    const second = (await manager.promptTool("s2"))?.server as { env: Record<string, string> };
+
+    assert.equal(first.env["AGENTBRIDGE_APPROVAL_URL"], second.env["AGENTBRIDGE_APPROVAL_URL"]);
+    assert.notEqual(first.env["AGENTBRIDGE_SESSION_ID"], second.env["AGENTBRIDGE_SESSION_ID"]);
+    await manager.close();
+  });
+});
+
+describe("autoApprove", () => {
+  it("allows everything while enabled and asks nothing", async () => {
+    const { manager, events } = harness();
+    manager.autoApprove(true);
+
+    assert.equal((await manager.authorize({ ...call, permissions: ["WRITE"], mode: "ask" })).effect, "allow");
+    assert.deepEqual(events, [], "no approval request is raised");
+  });
+
+  it("is visible as a policy rather than a hidden switch", () => {
+    const { manager } = harness();
+    manager.autoApprove(true);
+    assert.deepEqual(manager.listRules().map((r) => r.id), ["auto-approve-all"]);
+  });
+
+  it("is lifted the same way it was set", async () => {
+    const { manager, events } = harness();
+    manager.autoApprove(true);
+    manager.autoApprove(false);
+
+    assert.deepEqual(manager.listRules(), []);
+    const pending = manager.authorize({ ...call, permissions: ["WRITE"], mode: "ask" });
+    await Promise.resolve();
+    assert.equal(events.length, 1, "the host is asked again");
+    manager.deny(events[0]!.type === "permission_request" ? events[0]!.requestId : "");
+    await pending;
+  });
+});

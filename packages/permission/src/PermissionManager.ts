@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
+
+import { ApprovalGateway, type PromptDecision } from "./ApprovalGateway.js";
 
 import { AgentBridgeError, type AgentEventPayload } from "@jeonhui/agentbridge-core";
 
@@ -57,6 +60,17 @@ export interface PermissionManagerOptions {
   /** Persists rules and the approval audit trail (spec 20.5). */
   storage?: PermissionStore;
   logger?: PermissionLogger;
+  /**
+   * Enables the permission prompt hook, which is what makes `ask` reach an agent's own tool calls.
+   * Without it, `ask` only covers calls the host makes itself (spec 25.4).
+   */
+  promptHook?: {
+    enabled: boolean;
+    /** Maps the CLI's tool name onto a registry id and its permissions. */
+    resolveTool?: (toolName: string) => { toolId: string; permissions: Permission[] } | undefined;
+    /** Provider id recorded on the resulting approval request. */
+    provider?: string;
+  };
 }
 
 export interface AuthorizeInput {
@@ -92,6 +106,8 @@ export class PermissionManager {
   readonly #onAudit: ((request: ApprovalRequest) => void) | undefined;
   readonly #storage: PermissionStore | undefined;
   readonly #logger: PermissionLogger | undefined;
+  readonly #promptHook: PermissionManagerOptions["promptHook"];
+  #gateway: ApprovalGateway | undefined;
 
   constructor(options: PermissionManagerOptions = {}) {
     this.#timeoutMs = options.approvalTimeoutMs ?? 120_000;
@@ -99,7 +115,94 @@ export class PermissionManager {
     this.#onAudit = options.onAudit;
     this.#storage = options.storage;
     this.#logger = options.logger;
+    this.#promptHook = options.promptHook;
     for (const rule of options.rules ?? []) this.setRule(rule);
+  }
+
+  /**
+   * Describes the MCP tool an agent must consult before each tool call (spec 25.4).
+   *
+   * Returns undefined when the hook is disabled, in which case `ask` degrades to the CLI's own
+   * prompt, which denies in non-interactive mode. Saying so plainly beats appearing to work.
+   */
+  async promptTool(
+    sessionId: string,
+  ): Promise<{ server: Record<string, unknown>; toolName: string } | undefined> {
+    if (!this.#promptHook?.enabled) return undefined;
+
+    const gateway = await this.#ensureGateway();
+    const address = gateway.address!;
+
+    return {
+      server: {
+        id: "agentbridge_approval",
+        transport: "stdio",
+        command: process.execPath,
+        args: [approvalServerPath()],
+        env: {
+          AGENTBRIDGE_APPROVAL_URL: address.url,
+          AGENTBRIDGE_APPROVAL_TOKEN: address.token,
+          AGENTBRIDGE_SESSION_ID: sessionId,
+        },
+      },
+      toolName: "permission_prompt",
+    };
+  }
+
+  /**
+   * Approves every request without asking, by installing a rule rather than a parallel switch,
+   * so it shows up in listPolicies() and can be lifted the same way it was set.
+   */
+  autoApprove(enabled: boolean): void {
+    const id = "auto-approve-all";
+    if (!enabled) {
+      this.removeRule(id);
+      return;
+    }
+
+    this.setRule({
+      id,
+      match: { toolPattern: "**" },
+      effect: "allow",
+      priority: 1000,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async #ensureGateway(): Promise<ApprovalGateway> {
+    if (this.#gateway?.address) return this.#gateway;
+
+    const gateway = new ApprovalGateway({
+      onRequest: async ({ sessionId, toolName, input }): Promise<PromptDecision> => {
+        const resolved = this.#promptHook?.resolveTool?.(toolName);
+        const decision = await this.authorize({
+          toolId: resolved?.toolId ?? toolName,
+          tool: toolName,
+          callId: randomUUID(),
+          sessionId,
+          provider: this.#promptHook?.provider ?? "",
+          // An unknown tool is treated as a write, matching the deny-by-default posture.
+          permissions: resolved?.permissions ?? ["WRITE"],
+          mode: "ask",
+          arguments: input,
+        });
+
+        return decision.effect === "allow"
+          ? { behavior: "allow", updatedInput: input }
+          : { behavior: "deny", message: decision.reason ?? "denied by the host application" };
+      },
+    });
+
+    await gateway.start();
+    this.#gateway = gateway;
+    this.#logger?.info("permission.hook_started", { url: gateway.address?.url });
+    return gateway;
+  }
+
+  /** Releases the gateway. Safe to call when it never started. */
+  async close(): Promise<void> {
+    await this.#gateway?.stop();
+    this.#gateway = undefined;
   }
 
   /** Reloads rules written by a previous process, skipping any that no longer validate. */
@@ -306,4 +409,10 @@ export class PermissionManager {
       createdAt: new Date().toISOString(),
     });
   }
+}
+
+/** Resolves the bundled approval MCP server, which ships alongside the compiled output. */
+function approvalServerPath(): string {
+  const require = createRequire(import.meta.url);
+  return require.resolve("../bin/approval-mcp.mjs");
 }

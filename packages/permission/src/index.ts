@@ -13,6 +13,14 @@ export {
 } from "./policy.js";
 
 export {
+  ApprovalGateway,
+  type ApprovalGatewayOptions,
+  type ApprovalRequestPayload,
+  type GatewayAddress,
+  type PromptDecision,
+} from "./ApprovalGateway.js";
+
+export {
   PermissionManager,
   type ApprovalRequest,
   type AuthorizeInput,
