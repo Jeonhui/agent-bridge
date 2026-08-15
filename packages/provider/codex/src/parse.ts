@@ -1,4 +1,4 @@
-import type { AgentEventPayload } from "@agentbridge/core";
+import type { AgentEventPayload } from "@jeonhui/agentbridge-core";
 
 /**
  * Maps Codex CLI `exec --json` lines onto AgentBridge events.

@@ -8,7 +8,7 @@
     "start": "node index.mjs"
   },
   "dependencies": {
-    "@agentbridge/core": "workspace:*",
-    "@agentbridge/provider-claude": "workspace:*"
+    "@jeonhui/agentbridge-core": "workspace:*",
+    "@jeonhui/agentbridge-provider-claude": "workspace:*"
   }
 }

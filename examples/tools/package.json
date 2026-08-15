@@ -8,8 +8,8 @@
     "start": "node index.mjs"
   },
   "dependencies": {
-    "@agentbridge/core": "workspace:*",
-    "@agentbridge/mcp-manager": "workspace:*",
-    "@agentbridge/permission": "workspace:*"
+    "@jeonhui/agentbridge-core": "workspace:*",
+    "@jeonhui/agentbridge-mcp-manager": "workspace:*",
+    "@jeonhui/agentbridge-permission": "workspace:*"
   }
 }

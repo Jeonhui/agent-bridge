@@ -6,15 +6,15 @@ import {
   resolveSecrets,
   type AgentEventPayload,
   type SecretResolver,
-} from "@agentbridge/core";
+} from "@jeonhui/agentbridge-core";
 import {
   McpClient,
   maskMcpConfig,
   validateMcpConfig,
   type McpServerConfig,
   type McpServerInfo,
-} from "@agentbridge/mcp-client";
-import { ToolRegistry, type AgentTool } from "@agentbridge/mcp-registry";
+} from "@jeonhui/agentbridge-mcp-client";
+import { ToolRegistry, type AgentTool } from "@jeonhui/agentbridge-mcp-registry";
 
 export type McpConnectionState =
   | "connecting"
@@ -476,4 +476,4 @@ function delay(ms: number): Promise<void> {
 }
 
 export type { McpServerConfig, AgentTool };
-export { ToolRegistry } from "@agentbridge/mcp-registry";
+export { ToolRegistry } from "@jeonhui/agentbridge-mcp-registry";

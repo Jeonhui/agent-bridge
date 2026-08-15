@@ -8,7 +8,7 @@ import type {
   ToolCallResult,
   ToolDescriptor,
   Unsubscribe,
-} from "@agentbridge/core";
+} from "@jeonhui/agentbridge-core";
 
 export type {
   AgentEvent,

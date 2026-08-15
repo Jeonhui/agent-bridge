@@ -2,7 +2,7 @@ import { writeFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { AgentBridgeError } from "@agentbridge/core";
+import { AgentBridgeError } from "@jeonhui/agentbridge-core";
 import {
   ProcessRunner,
   StreamParser,
@@ -14,7 +14,7 @@ import {
   type ProviderSessionHandle,
   type ResolvedMcpServer,
   type SendOptions,
-} from "@agentbridge/provider-core";
+} from "@jeonhui/agentbridge-provider-core";
 
 import { parseClaudeLine } from "./parse.js";
 

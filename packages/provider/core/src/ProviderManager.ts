@@ -1,4 +1,4 @@
-import { AgentBridgeError } from "@agentbridge/core";
+import { AgentBridgeError } from "@jeonhui/agentbridge-core";
 
 import type { AgentProvider, ProviderDetection, ProviderInfo } from "./AgentProvider.js";
 

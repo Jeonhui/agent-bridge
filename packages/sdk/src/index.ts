@@ -1,4 +1,4 @@
-import type { AgentBridge } from "@agentbridge/core";
+import type { AgentBridge } from "@jeonhui/agentbridge-core";
 
 import { EmbeddedClient } from "./backends/embedded.js";
 import { HttpClient, type HttpClientOptions } from "./backends/http.js";

@@ -3,8 +3,8 @@
 //
 //   node examples/basic/index.mjs "what is 1+1?"
 
-import { AgentBridge } from "@agentbridge/core";
-import { ClaudeProvider } from "@agentbridge/provider-claude";
+import { AgentBridge } from "@jeonhui/agentbridge-core";
+import { ClaudeProvider } from "@jeonhui/agentbridge-provider-claude";
 
 const agent = new AgentBridge();
 agent.registerProvider(new ClaudeProvider());

@@ -3,7 +3,7 @@ import { after, before, describe, it } from "node:test";
 
 import WebSocket from "ws";
 
-import { AgentBridge, type AgentEventPayload } from "@agentbridge/core";
+import { AgentBridge, type AgentEventPayload } from "@jeonhui/agentbridge-core";
 
 import { RuntimeServer } from "../server.js";
 

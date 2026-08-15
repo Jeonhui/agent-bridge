@@ -2,7 +2,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
-import { AgentBridgeError, type AgentBridge } from "@agentbridge/core";
+import { AgentBridgeError, type AgentBridge } from "@jeonhui/agentbridge-core";
 
 export interface AgentBridgeMcpServerOptions {
   agent: AgentBridge;

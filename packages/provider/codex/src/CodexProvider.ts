@@ -1,4 +1,4 @@
-import { AgentBridgeError } from "@agentbridge/core";
+import { AgentBridgeError } from "@jeonhui/agentbridge-core";
 import {
   ProcessRunner,
   StreamParser,
@@ -10,7 +10,7 @@ import {
   type ProviderSessionHandle,
   type ResolvedMcpServer,
   type SendOptions,
-} from "@agentbridge/provider-core";
+} from "@jeonhui/agentbridge-provider-core";
 
 import { parseCodexLine } from "./parse.js";
 

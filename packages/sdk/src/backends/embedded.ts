@@ -1,4 +1,4 @@
-import type { AgentBridge, AgentEventOf, AgentEventType, Unsubscribe } from "@agentbridge/core";
+import type { AgentBridge, AgentEventOf, AgentEventType, Unsubscribe } from "@jeonhui/agentbridge-core";
 
 import type {
   AgentBridgeClient,

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { AgentBridgeError, type AgentEventPayload } from "@agentbridge/core";
+import { AgentBridgeError, type AgentEventPayload } from "@jeonhui/agentbridge-core";
 
 import {
   evaluate,

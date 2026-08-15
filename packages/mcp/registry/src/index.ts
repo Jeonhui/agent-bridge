@@ -1,4 +1,4 @@
-import { AgentBridgeError } from "@agentbridge/core";
+import { AgentBridgeError } from "@jeonhui/agentbridge-core";
 
 export type Permission = "READ" | "WRITE" | "EXECUTE" | "NETWORK" | "SYSTEM";
 

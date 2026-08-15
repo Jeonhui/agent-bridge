@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import type { McpBinding } from "@agentbridge/core";
+import type { McpBinding } from "@jeonhui/agentbridge-core";
 
 import { McpManager } from "../index.js";
 

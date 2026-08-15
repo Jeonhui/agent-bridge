@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
-import { AgentBridge, type AgentEventPayload } from "@agentbridge/core";
-import { McpManager } from "@agentbridge/mcp-manager";
+import { AgentBridge, type AgentEventPayload } from "@jeonhui/agentbridge-core";
+import { McpManager } from "@jeonhui/agentbridge-mcp-manager";
 
 import { RuntimeServer } from "../server.js";
 

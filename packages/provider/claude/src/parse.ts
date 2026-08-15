@@ -1,4 +1,4 @@
-import type { AgentEventPayload } from "@agentbridge/core";
+import type { AgentEventPayload } from "@jeonhui/agentbridge-core";
 
 /**
  * Maps Claude Code's `--output-format stream-json` lines onto AgentBridge events.

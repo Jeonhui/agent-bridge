@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { AgentBridgeError, MapSecretResolver } from "@agentbridge/core";
+import { AgentBridgeError, MapSecretResolver } from "@jeonhui/agentbridge-core";
 
 import { McpManager } from "../index.js";
-import type { McpServerConfig } from "@agentbridge/mcp-client";
+import type { McpServerConfig } from "@jeonhui/agentbridge-mcp-client";
 
 const FIXTURE = new URL("../../../../../scripts/fixtures/filesystem-mcp.mjs", import.meta.url).pathname;
 

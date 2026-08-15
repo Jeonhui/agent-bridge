@@ -24,58 +24,58 @@ importers:
 
   apps/runtime:
     dependencies:
-      '@agentbridge/core':
+      '@jeonhui/agentbridge-core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@agentbridge/mcp-manager':
+      '@jeonhui/agentbridge-mcp-manager':
         specifier: workspace:*
         version: link:../../packages/mcp/manager
-      '@agentbridge/permission':
+      '@jeonhui/agentbridge-permission':
         specifier: workspace:*
         version: link:../../packages/permission
-      '@agentbridge/provider-claude':
+      '@jeonhui/agentbridge-provider-claude':
         specifier: workspace:*
         version: link:../../packages/provider/claude
-      '@agentbridge/provider-codex':
+      '@jeonhui/agentbridge-provider-codex':
         specifier: workspace:*
         version: link:../../packages/provider/codex
-      '@agentbridge/provider-core':
+      '@jeonhui/agentbridge-provider-core':
         specifier: workspace:*
         version: link:../../packages/provider/core
-      '@agentbridge/runtime':
+      '@jeonhui/agentbridge-runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
 
   examples/basic:
     dependencies:
-      '@agentbridge/core':
+      '@jeonhui/agentbridge-core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@agentbridge/provider-claude':
+      '@jeonhui/agentbridge-provider-claude':
         specifier: workspace:*
         version: link:../../packages/provider/claude
 
   examples/mcp:
     dependencies:
-      '@agentbridge/core':
+      '@jeonhui/agentbridge-core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@agentbridge/mcp-manager':
+      '@jeonhui/agentbridge-mcp-manager':
         specifier: workspace:*
         version: link:../../packages/mcp/manager
-      '@agentbridge/provider-claude':
+      '@jeonhui/agentbridge-provider-claude':
         specifier: workspace:*
         version: link:../../packages/provider/claude
 
   examples/tools:
     dependencies:
-      '@agentbridge/core':
+      '@jeonhui/agentbridge-core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@agentbridge/mcp-manager':
+      '@jeonhui/agentbridge-mcp-manager':
         specifier: workspace:*
         version: link:../../packages/mcp/manager
-      '@agentbridge/permission':
+      '@jeonhui/agentbridge-permission':
         specifier: workspace:*
         version: link:../../packages/permission
 
@@ -83,7 +83,7 @@ importers:
 
   packages/mcp/client:
     dependencies:
-      '@agentbridge/core':
+      '@jeonhui/agentbridge-core':
         specifier: workspace:*
         version: link:../../core
       '@modelcontextprotocol/sdk':
@@ -92,25 +92,25 @@ importers:
 
   packages/mcp/manager:
     dependencies:
-      '@agentbridge/core':
+      '@jeonhui/agentbridge-core':
         specifier: workspace:*
         version: link:../../core
-      '@agentbridge/mcp-client':
+      '@jeonhui/agentbridge-mcp-client':
         specifier: workspace:*
         version: link:../client
-      '@agentbridge/mcp-registry':
+      '@jeonhui/agentbridge-mcp-registry':
         specifier: workspace:*
         version: link:../registry
 
   packages/mcp/registry:
     dependencies:
-      '@agentbridge/core':
+      '@jeonhui/agentbridge-core':
         specifier: workspace:*
         version: link:../../core
 
   packages/mcp/server:
     dependencies:
-      '@agentbridge/core':
+      '@jeonhui/agentbridge-core':
         specifier: workspace:*
         version: link:../../core
       '@modelcontextprotocol/sdk':
@@ -119,57 +119,57 @@ importers:
 
   packages/permission:
     dependencies:
-      '@agentbridge/core':
+      '@jeonhui/agentbridge-core':
         specifier: workspace:*
         version: link:../core
 
   packages/provider/claude:
     dependencies:
-      '@agentbridge/core':
+      '@jeonhui/agentbridge-core':
         specifier: workspace:*
         version: link:../../core
-      '@agentbridge/provider-core':
+      '@jeonhui/agentbridge-provider-core':
         specifier: workspace:*
         version: link:../core
 
   packages/provider/codex:
     dependencies:
-      '@agentbridge/core':
+      '@jeonhui/agentbridge-core':
         specifier: workspace:*
         version: link:../../core
-      '@agentbridge/provider-core':
+      '@jeonhui/agentbridge-provider-core':
         specifier: workspace:*
         version: link:../core
 
   packages/provider/core:
     dependencies:
-      '@agentbridge/core':
+      '@jeonhui/agentbridge-core':
         specifier: workspace:*
         version: link:../../core
 
   packages/runtime:
     dependencies:
-      '@agentbridge/core':
+      '@jeonhui/agentbridge-core':
         specifier: workspace:*
         version: link:../core
       ws:
         specifier: ^8.21.3
         version: 8.21.3
     devDependencies:
-      '@agentbridge/mcp-manager':
+      '@jeonhui/agentbridge-mcp-manager':
         specifier: workspace:*
         version: link:../mcp/manager
 
   packages/sdk:
     dependencies:
-      '@agentbridge/core':
+      '@jeonhui/agentbridge-core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
-      '@agentbridge/mcp-manager':
+      '@jeonhui/agentbridge-mcp-manager':
         specifier: workspace:*
         version: link:../mcp/manager
-      '@agentbridge/runtime':
+      '@jeonhui/agentbridge-runtime':
         specifier: workspace:*
         version: link:../runtime
       ws:

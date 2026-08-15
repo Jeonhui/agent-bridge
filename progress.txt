@@ -458,3 +458,31 @@ This is risk R1 arriving earlier and harder than the table anticipated - it pred
 output formats drifting, not an authentication path being withdrawn.
 
 Tests: 272 passing.
+
+[2026-08-15] Release readiness: 0.1.0 under @jeonhui
+
+Auditing publishability turned up problems that only surface by actually packing and installing,
+not by reading package.json.
+
+BLOCKER, found by installing the tarball: npm refuses the package outright.
+  npm error EUNSUPPORTEDPROTOCOL  Unsupported URL Type "workspace:": workspace:*
+`npm pack` leaves the workspace protocol in dependencies; only `pnpm pack` rewrites it to a real
+version. Publishing therefore has to go through pnpm, and a `prepublishOnly` guard now fails with
+that explanation if anyone reaches for npm. Verified the guard actually fires.
+
+BLOCKER, found by dry-running the publish: the @agentbridge scope belongs to someone else -
+@agentbridge/core has existed since 2025-03 and is on 0.1.2. Renamed everything to
+@jeonhui/agentbridge-*, which is free. Not @jeonhui/core: a personal scope will hold other projects,
+and a generic name there would collide with the next one.
+
+Also fixed, each verified against a real tarball rather than assumed:
+- version 0.0.0 -> 0.1.0, which is the honest number while Codex is unverified and Gemini is out
+- no prepublishOnly, so publishing from a clean checkout would have shipped an empty dist
+- no publishConfig.access, so a scoped package would have been refused
+- 32 of 106 files in the core tarball were compiled tests; `!dist/**/__tests__` removes them (75 now)
+- no per-package README or LICENSE; both now ship, with a usage example each
+
+End-to-end proof: nine packages packed, installed into a scratch project with plain npm, and driven
+through the SDK's HTTP backend against a live runtime. Providers listed, error table intact.
+
+Tests: 272 passing.

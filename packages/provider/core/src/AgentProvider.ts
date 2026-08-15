@@ -1,4 +1,4 @@
-import type { AgentEventPayload } from "@agentbridge/core";
+import type { AgentEventPayload } from "@jeonhui/agentbridge-core";
 
 export interface ProviderCapabilities {
   streaming: boolean;

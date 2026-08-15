@@ -14,7 +14,7 @@ export interface BuiltinProviderSpec {
  *
  * Detection lives here because it needs nothing but the executable name, which keeps
  * `listAgents()` free of any dependency on the adapter packages. Running a session needs the
- * adapter itself: `@agentbridge/provider-claude` or `-codex`.
+ * adapter itself: `@jeonhui/agentbridge-provider-claude` or `-codex`.
  *
  * Gemini is deliberately absent: reporting a CLI as detected implies AgentBridge can drive it,
  * and it currently cannot. See the README.

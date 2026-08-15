@@ -12,18 +12,18 @@ Early Phase 1 (MVP) implementation.
 
 | Package | Contents | Status |
 | --- | --- | --- |
-| `@agentbridge/core` | Error codes, event bus, session state machine, SessionManager, AgentBridge entry point | Implemented |
-| `@agentbridge/provider-core` | Provider contract, ProviderManager, CLI detection, process and stream plumbing | Implemented |
-| `@agentbridge/provider-claude` | Claude Code adapter: turn execution, stream parsing, resume, MCP config injection | Implemented |
-| `@agentbridge/provider-codex` | Codex CLI adapter: turn execution, event mapping, sandbox authorization | Implemented, unverified live (see below) |
-| `@agentbridge/mcp-client` | MCP client over stdio, SSE, and streamable HTTP | Implemented |
-| `@agentbridge/mcp-registry` | Tool Registry with permission inference and reload diffing | Implemented |
-| `@agentbridge/mcp-manager` | Registration, connection, hot reload, tool invocation | Implemented |
-| `@agentbridge/mcp-server` | AgentBridge exposed as an MCP server | Implemented |
-| `@agentbridge/permission` | Policy evaluation, approval queue, audit hook | Implemented |
-| `@agentbridge/runtime` | Local REST and WebSocket runtime, all 28 documented routes | Implemented |
-| `@agentbridge/sdk` | One client over the embedded and HTTP backends | Implemented |
-| `@agentbridge/runtime-cli` | `agentbridge serve` daemon with all three adapters registered | Implemented |
+| `@jeonhui/agentbridge-core` | Error codes, event bus, session state machine, SessionManager, AgentBridge entry point | Implemented |
+| `@jeonhui/agentbridge-provider-core` | Provider contract, ProviderManager, CLI detection, process and stream plumbing | Implemented |
+| `@jeonhui/agentbridge-provider-claude` | Claude Code adapter: turn execution, stream parsing, resume, MCP config injection | Implemented |
+| `@jeonhui/agentbridge-provider-codex` | Codex CLI adapter: turn execution, event mapping, sandbox authorization | Implemented, unverified live (see below) |
+| `@jeonhui/agentbridge-mcp-client` | MCP client over stdio, SSE, and streamable HTTP | Implemented |
+| `@jeonhui/agentbridge-mcp-registry` | Tool Registry with permission inference and reload diffing | Implemented |
+| `@jeonhui/agentbridge-mcp-manager` | Registration, connection, hot reload, tool invocation | Implemented |
+| `@jeonhui/agentbridge-mcp-server` | AgentBridge exposed as an MCP server | Implemented |
+| `@jeonhui/agentbridge-permission` | Policy evaluation, approval queue, audit hook | Implemented |
+| `@jeonhui/agentbridge-runtime` | Local REST and WebSocket runtime, all 28 documented routes | Implemented |
+| `@jeonhui/agentbridge-sdk` | One client over the embedded and HTTP backends | Implemented |
+| `@jeonhui/agentbridge-cli` | `agentbridge serve` daemon with all three adapters registered | Implemented |
 
 ## Requirements
 
@@ -58,8 +58,8 @@ Deleting `dist/` by hand leaves `tsconfig.tsbuildinfo` behind, and `tsc -b` will
 ## Talking to Claude
 
 ```typescript
-import { AgentBridge } from "@agentbridge/core";
-import { ClaudeProvider } from "@agentbridge/provider-claude";
+import { AgentBridge } from "@jeonhui/agentbridge-core";
+import { ClaudeProvider } from "@jeonhui/agentbridge-provider-claude";
 
 const agent = new AgentBridge();
 agent.registerProvider(new ClaudeProvider());
@@ -97,7 +97,7 @@ break the parser.
 Register an MCP server, bind it to a session, and the agent can use it:
 
 ```typescript
-import { McpManager } from "@agentbridge/mcp-manager";
+import { McpManager } from "@jeonhui/agentbridge-mcp-manager";
 
 const mcp = new McpManager();
 agent.attachMcp(mcp);
@@ -198,7 +198,7 @@ constant time so a caller cannot learn one character at a time by timing rejecti
 
 ## One client, two transports
 
-`@agentbridge/sdk` exposes the same interface whether it runs in-process or against the runtime, so
+`@jeonhui/agentbridge-sdk` exposes the same interface whether it runs in-process or against the runtime, so
 moving a feature between them is a configuration change:
 
 ```typescript
@@ -217,7 +217,7 @@ against both backends, so a drift between them fails the build rather than surpr
 
 ## Letting an agent drive AgentBridge
 
-`@agentbridge/mcp-server` is the other direction: an external agent connects and uses AgentBridge as
+`@jeonhui/agentbridge-mcp-server` is the other direction: an external agent connects and uses AgentBridge as
 a set of tools — listing providers, creating sessions, calling registered tools under policy.
 
 ```typescript

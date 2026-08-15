@@ -7,15 +7,15 @@ import {
   KeychainSecretResolver,
   Logger,
   type LogLevel,
-} from "@agentbridge/core";
+} from "@jeonhui/agentbridge-core";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { McpManager } from "@agentbridge/mcp-manager";
-import { PermissionManager } from "@agentbridge/permission";
-import { ClaudeProvider } from "@agentbridge/provider-claude";
-import { CodexProvider } from "@agentbridge/provider-codex";
-import { listAgents } from "@agentbridge/provider-core";
-import { RuntimeServer, credentialsPath, writeCredentials } from "@agentbridge/runtime";
+import { McpManager } from "@jeonhui/agentbridge-mcp-manager";
+import { PermissionManager } from "@jeonhui/agentbridge-permission";
+import { ClaudeProvider } from "@jeonhui/agentbridge-provider-claude";
+import { CodexProvider } from "@jeonhui/agentbridge-provider-codex";
+import { listAgents } from "@jeonhui/agentbridge-provider-core";
+import { RuntimeServer, credentialsPath, writeCredentials } from "@jeonhui/agentbridge-runtime";
 
 const USAGE = `agentbridge - local AI agent runtime
 

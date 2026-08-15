@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { AgentBridgeError } from "@agentbridge/core";
+import { AgentBridgeError } from "@jeonhui/agentbridge-core";
 
 import { ToolRegistry, inferPermissions, toolId } from "../index.js";
 

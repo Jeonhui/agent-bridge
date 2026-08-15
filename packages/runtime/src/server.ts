@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
-import { AgentBridgeError, type AgentBridge, type AgentEvent } from "@agentbridge/core";
+import { AgentBridgeError, type AgentBridge, type AgentEvent } from "@jeonhui/agentbridge-core";
 
 import { extractToken, generateToken, tokenMatches } from "./auth.js";
 import { WebSocketHub } from "./ws.js";

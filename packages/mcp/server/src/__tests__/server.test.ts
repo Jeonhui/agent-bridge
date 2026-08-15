@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { AgentBridge, type AgentEventPayload } from "@agentbridge/core";
+import { AgentBridge, type AgentEventPayload } from "@jeonhui/agentbridge-core";
 
 import { AgentBridgeMcpServer } from "../index.js";
 

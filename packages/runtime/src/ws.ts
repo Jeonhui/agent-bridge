@@ -3,7 +3,7 @@ import type { Duplex } from "node:stream";
 
 import { WebSocketServer, type WebSocket } from "ws";
 
-import type { AgentEvent, AgentEventType } from "@agentbridge/core";
+import type { AgentEvent, AgentEventType } from "@jeonhui/agentbridge-core";
 
 export type ClientFrame =
   | { t: "subscribe"; sessionIds?: string[]; events?: AgentEventType[]; sinceSeq?: number }

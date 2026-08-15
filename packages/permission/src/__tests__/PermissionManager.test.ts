@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { AgentBridgeError, type AgentEventPayload } from "@agentbridge/core";
+import { AgentBridgeError, type AgentEventPayload } from "@jeonhui/agentbridge-core";
 
 import { PermissionManager, type ApprovalRequest } from "../PermissionManager.js";
 

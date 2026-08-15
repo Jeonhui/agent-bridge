@@ -226,7 +226,7 @@ AgentBridge's users are developers, not end consumers.
                                      │
                     ┌────────────────┴────────────────┐
                     │                                 │
-            @agentbridge/sdk                 HTTP / WebSocket / IPC
+            @jeonhui/agentbridge-sdk                 HTTP / WebSocket / IPC
               (Embedded)                        (Local Runtime)
                     │                                 │
                     └────────────────┬────────────────┘
@@ -290,7 +290,7 @@ Storage: persist session state and event metadata
 
 ### 8.4 Dependency rules
 
-- The core (`@agentbridge/core`) imports no provider implementation directly. (MUST)
+- The core (`@jeonhui/agentbridge-core`) imports no provider implementation directly. (MUST)
 - Provider adapters never reference the MCP Manager. The core injects MCP configuration at session creation. (MUST)
 - The Tool Registry knows nothing about providers. A tool's origin is expressed only through its `source` field. (MUST)
 - The runtime package depends on the core, not on the SDK. The SDK is a client that can select either backend. (MUST)
@@ -305,7 +305,7 @@ Storage: persist session state and event metadata
 The external program imports the SDK and runs it in the same Node process.
 
 ```typescript
-import { AgentBridge } from "@agentbridge/core";
+import { AgentBridge } from "@jeonhui/agentbridge-core";
 
 const agent = new AgentBridge();
 await agent.start();
@@ -343,7 +343,7 @@ My App ──HTTP/WS/IPC──▶ agentbridge-runtime ──▶ Claude / Gemini 
 
 Each module is defined by responsibility, inputs, outputs, dependencies, and invariants.
 
-### 10.1 Core (`@agentbridge/core`)
+### 10.1 Core (`@jeonhui/agentbridge-core`)
 
 | Field | Value |
 | --- | --- |
@@ -353,7 +353,7 @@ Each module is defined by responsibility, inputs, outputs, dependencies, and inv
 | Dependencies | provider-core, mcp, permission, storage |
 | Invariants | No session may be created before `start()`. Every event carries a monotonically increasing `seq`. Shutdown reclaims every child process. |
 
-### 10.2 Provider Manager (`@agentbridge/provider-core`)
+### 10.2 Provider Manager (`@jeonhui/agentbridge-provider-core`)
 
 | Field | Value |
 | --- | --- |
@@ -363,7 +363,7 @@ Each module is defined by responsibility, inputs, outputs, dependencies, and inv
 | Dependencies | None (references core interfaces only) |
 | Invariants | No duplicate adapter ids. Detection results are TTL-cached and explicitly invalidatable. |
 
-### 10.3 Session Manager (`@agentbridge/core/session`)
+### 10.3 Session Manager (`@jeonhui/agentbridge-core/session`)
 
 | Field | Value |
 | --- | --- |
@@ -373,7 +373,7 @@ Each module is defined by responsibility, inputs, outputs, dependencies, and inv
 | Dependencies | Provider Manager, MCP Manager, storage |
 | Invariants | Transitions never leave the state machine in 13.2. A `stopped` session rejects `send`. One in-flight turn per session. |
 
-### 10.4 MCP Manager (`@agentbridge/mcp/manager`)
+### 10.4 MCP Manager (`@jeonhui/agentbridge-mcp/manager`)
 
 | Field | Value |
 | --- | --- |
@@ -383,7 +383,7 @@ Each module is defined by responsibility, inputs, outputs, dependencies, and inv
 | Dependencies | MCP client (transports), Tool Registry |
 | Invariants | Server ids are unique. A connection failure never kills a session. During reload, calls to that server are queued or rejected. |
 
-### 10.5 Tool Registry (`@agentbridge/mcp/registry`)
+### 10.5 Tool Registry (`@jeonhui/agentbridge-mcp/registry`)
 
 | Field | Value |
 | --- | --- |
@@ -393,7 +393,7 @@ Each module is defined by responsibility, inputs, outputs, dependencies, and inv
 | Dependencies | Permission Manager (attaches permission metadata) |
 | Invariants | Tool ids follow `{source}:{server}:{name}` and are globally unique. Name collisions are resolved with a server prefix. |
 
-### 10.6 Permission Manager (`@agentbridge/permission`)
+### 10.6 Permission Manager (`@jeonhui/agentbridge-permission`)
 
 | Field | Value |
 | --- | --- |
@@ -403,7 +403,7 @@ Each module is defined by responsibility, inputs, outputs, dependencies, and inv
 | Dependencies | Storage (policies and audit records) |
 | Invariants | Deny-by-default. No response means denial after the timeout. Every decision is written to the audit log. |
 
-### 10.7 Runtime (`@agentbridge/runtime`, `apps/runtime`)
+### 10.7 Runtime (`@jeonhui/agentbridge-runtime`, `apps/runtime`)
 
 | Field | Value |
 | --- | --- |
@@ -413,7 +413,7 @@ Each module is defined by responsibility, inputs, outputs, dependencies, and inv
 | Dependencies | Core |
 | Invariants | Binds to `127.0.0.1` by default. Requests without a token are rejected. Events reach only that session's subscribers. |
 
-### 10.8 SDK (`@agentbridge/sdk`)
+### 10.8 SDK (`@jeonhui/agentbridge-sdk`)
 
 | Field | Value |
 | --- | --- |
@@ -423,7 +423,7 @@ Each module is defined by responsibility, inputs, outputs, dependencies, and inv
 | Dependencies | Core (embedded) or an HTTP client |
 | Invariants | Both backends expose identical public signatures. Backend-specific features are not surfaced. |
 
-### 10.9 Storage and logging (`@agentbridge/core/storage`)
+### 10.9 Storage and logging (`@jeonhui/agentbridge-core/storage`)
 
 | Field | Value |
 | --- | --- |
@@ -787,7 +787,7 @@ Merge order (lowest to highest)
 ### 14.1 Entry point
 
 ```typescript
-import { AgentBridge } from "@agentbridge/core";
+import { AgentBridge } from "@jeonhui/agentbridge-core";
 
 const agent = new AgentBridge(config?: AgentBridgeConfig);
 
@@ -2200,7 +2200,7 @@ external app: agent.permissions.approve(requestId) / deny(requestId)
 
 | Goal | Deliverables |
 | --- | --- |
-| Core agent connection, sessions, MCP, and permissions | `@agentbridge/core`, `provider/*`, `mcp/*`, `permission`, `runtime`, `sdk`, `apps/runtime`, five examples |
+| Core agent connection, sessions, MCP, and permissions | `@jeonhui/agentbridge-core`, `provider/*`, `mcp/*`, `permission`, `runtime`, `sdk`, `apps/runtime`, five examples |
 
 Recommended build order:
 
@@ -2235,7 +2235,7 @@ AgentBridge
 
 | Goal | Deliverables |
 | --- | --- |
-| Let agents drive local applications that have no MCP server | `@agentbridge/gui`, `@agentbridge/browser`, expanded AgentBridge MCP Server tools (`desktop.*`, `browser.*`), per-OS permission handling |
+| Let agents drive local applications that have no MCP server | `@jeonhui/agentbridge-gui`, `@jeonhui/agentbridge-browser`, expanded AgentBridge MCP Server tools (`desktop.*`, `browser.*`), per-OS permission handling |
 
 ### 30.3 Phase 3 — Virtual agent workspace
 
@@ -2371,7 +2371,7 @@ Each item should be settled before implementation begins; until then, the defaul
 | D5 | Concurrent `send` on one session | Queue / reject | Queue by default; `queueing: false` switches to rejection |
 | D6 | Fallback when permission inference fails | READ / WRITE | WRITE (conservative) |
 | D7 | MCP process sharing | Global sharing / per-session isolation | Global sharing; register the server twice under different ids when isolation is needed |
-| D8 | SDK package name | Use `@agentbridge/core` directly / go through `@agentbridge/sdk` | External apps should use `@agentbridge/sdk`; documentation shows both |
+| D8 | SDK package name | Use `@jeonhui/agentbridge-core` directly / go through `@jeonhui/agentbridge-sdk` | External apps should use `@jeonhui/agentbridge-sdk`; documentation shows both |
 | D9 | Core implementation language | TypeScript / Rust with napi bindings / Go | **TypeScript, decided** (see 33.1) |
 | D10 | Persistence backend | SQLite / JSON documents / memory only | **JSON documents behind a Storage interface, decided** (see 20.3). Memory is the default for Embedded Mode |
 
@@ -2454,7 +2454,7 @@ formats drifting, not an authentication path being withdrawn.
 ### 35.1 Embedded Mode (TypeScript)
 
 ```typescript
-import { AgentBridge } from "@agentbridge/core";
+import { AgentBridge } from "@jeonhui/agentbridge-core";
 
 const agent = new AgentBridge({ defaultPermissionMode: "ask" });
 await agent.start();
@@ -2547,7 +2547,7 @@ console.log(after.length - before.length);          // 1
 ### 35.4 Registering a custom provider
 
 ```typescript
-import { AgentBridge, type AgentProvider } from "@agentbridge/core";
+import { AgentBridge, type AgentProvider } from "@jeonhui/agentbridge-core";
 
 const myProvider: AgentProvider = {
   id: "my-agent",

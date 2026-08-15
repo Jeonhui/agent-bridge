@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 
-import { AgentBridge, type AgentEventPayload } from "@agentbridge/core";
-import { McpManager } from "@agentbridge/mcp-manager";
-import { RuntimeServer } from "@agentbridge/runtime";
+import { AgentBridge, type AgentEventPayload } from "@jeonhui/agentbridge-core";
+import { McpManager } from "@jeonhui/agentbridge-mcp-manager";
+import { RuntimeServer } from "@jeonhui/agentbridge-runtime";
 import WebSocket from "ws";
 
 import { createClient } from "../index.js";
