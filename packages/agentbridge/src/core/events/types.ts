@@ -25,7 +25,7 @@ export type AgentEventType =
 export type Permission = "READ" | "WRITE" | "EXECUTE" | "NETWORK" | "SYSTEM";
 
 export interface ToolSource {
-  type: "mcp" | "builtin" | "system";
+  type: "mcp" | "builtin" | "system" | "agent";
   server?: string;
 }
 

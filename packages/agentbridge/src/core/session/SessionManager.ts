@@ -302,11 +302,13 @@ export class SessionManager {
     }
 
     const inFlight = record.turn;
-    if (inFlight) {
-      if (!record.queueing) {
-        throw new AgentBridgeError("AB-3003", { details: { sessionId } });
-      }
-      await inFlight.done.catch(() => undefined);
+    if (inFlight && !record.queueing) {
+      throw new AgentBridgeError("AB-3003", { details: { sessionId } });
+    }
+    // A loop, not a single await: when several senders queue behind one turn, a single await
+    // would release them all at once and they would run concurrently.
+    while (record.turn) {
+      await record.turn.done.catch(() => undefined);
     }
 
     const turnId = randomUUID();

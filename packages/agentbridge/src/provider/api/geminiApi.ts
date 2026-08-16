@@ -50,7 +50,7 @@ export class GeminiApiProvider extends ApiProviderBase {
   }): Promise<ApiTurnResult> {
     const wireNames = new Map<string, string>();
     const declarations = request.tools.map((tool) => {
-      const wire = tool.id.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 60);
+      const wire = geminiWireName(tool.id);
       wireNames.set(wire, tool.id);
       return {
         name: wire,
@@ -114,22 +114,33 @@ function toContent(message: ApiMessage, wireNames: Map<string, string>): Record<
     const parts: unknown[] = [];
     if (message.content) parts.push({ text: message.content });
     for (const call of message.toolCalls ?? []) {
-      let wire = call.toolId.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 60);
+      let wire = geminiWireName(call.toolId);
       for (const [w, id] of wireNames) if (id === call.toolId) wire = w;
       parts.push({ functionCall: { name: wire, args: call.arguments ?? {} } });
     }
     return { role: "model", parts };
   }
   if (message.role === "tool") {
-    // Gemini answers a functionCall with a functionResponse part in a user turn.
+    // Gemini answers a functionCall with a functionResponse part in a user turn, keyed by the
+    // function NAME the model called - not by a call id, which this API does not have.
     let payload: unknown;
     try { payload = JSON.parse(message.content); } catch { payload = { output: message.content }; }
     return {
       role: "user",
-      parts: [{ functionResponse: { name: message.toolCallId ?? "tool", response: { result: payload } } }],
+      parts: [{
+        functionResponse: {
+          name: message.toolId ? geminiWireName(message.toolId) : "tool",
+          response: { result: payload },
+        },
+      }],
     };
   }
   return { role: "user", parts: [{ text: message.content }] };
+}
+
+/** The declaration sanitizer; functionResponse parts must reproduce it exactly. */
+function geminiWireName(toolId: string): string {
+  return toolId.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 60);
 }
 
 /** Gemini rejects JSON Schema fields it does not know; keep the subset it documents. */

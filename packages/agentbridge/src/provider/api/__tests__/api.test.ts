@@ -219,6 +219,8 @@ describe("GeminiApiProvider (spec 12.5)", () => {
       (body) => {
         const parts = body.contents.at(-1).parts;
         assert.ok(parts[0].functionResponse, "the tool result must come back as functionResponse");
+        // Gemini keys the response by the function NAME the model called, not by a call id.
+        assert.equal(parts[0].functionResponse.name, "mcp_fs_write_file");
         return { candidates: [{ content: { parts: [{ text: "done" }] } }] };
       },
     ]);

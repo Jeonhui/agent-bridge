@@ -1,6 +1,6 @@
 {
   "name": "@jeonhui/agentbridge-cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Runs AgentBridge as a local daemon",
   "keywords": [
     "agentbridge",

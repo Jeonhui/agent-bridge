@@ -1004,7 +1004,7 @@ interface ToolsApi {
 
 interface ToolFilter {
   sessionId?: string;              // restrict to tools visible in that session
-  source?: "mcp" | "builtin" | "system";
+  source?: "mcp" | "builtin" | "system" | "agent";
   server?: string;
 }
 
@@ -1575,7 +1575,7 @@ export interface AgentTool {
 }
 
 export interface ToolSource {
-  type: "mcp" | "builtin" | "system";
+  type: "mcp" | "builtin" | "system" | "agent";
   server?: string;                  // MCP server id when type === "mcp"
 }
 ```

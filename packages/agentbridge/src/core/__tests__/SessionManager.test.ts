@@ -109,6 +109,32 @@ describe("SessionManager (spec 10.3 / 13.2)", () => {
     assert.equal(second?.queued, true);
   });
 
+  it("keeps three queued senders serialized, not just two", async () => {
+    // Two waiters behind one turn used to be released together by a single await; the third
+    // sender is what exposes it, so this test pins the while-loop behavior.
+    let inTurn = 0;
+    let maxInTurn = 0;
+    const provider = fakeProvider({
+      onSend: async () => {
+        inTurn += 1;
+        maxInTurn = Math.max(maxInTurn, inTurn);
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        inTurn -= 1;
+      },
+    });
+    const { manager } = harness(provider);
+    const session = await manager.create({ provider: "fake" });
+
+    await Promise.all([
+      manager.send(session.id, "a"),
+      manager.send(session.id, "b"),
+      manager.send(session.id, "c"),
+      manager.send(session.id, "d"),
+    ]);
+
+    assert.equal(maxInTurn, 1, "turns on one session must never overlap");
+  });
+
   it("rejects a concurrent send with AB-3003 when queueing is off", async () => {
     const provider = fakeProvider({
       onSend: async () => {

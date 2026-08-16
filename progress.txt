@@ -795,3 +795,18 @@ guard test updated). REST gains /agents CRUD (table renumbered to 33); the SDK g
 client.agents on both backends, proven by the parity suite; POST /sessions accepts {agent}.
 
 Tests: 314 passing.
+
+--- 2026-08-16 (3) ---
+Post-release verification pass over 0.2.0 found three real defects, fixed in 0.2.1:
+
+- GeminiApiProvider keyed functionResponse by the synthetic call id; Gemini keys it by the
+  function NAME the model called. Tool messages now carry the registry toolId and the response
+  name is rebuilt with the same sanitizer as the declarations. The fake-server test now asserts
+  the exact name.
+- SessionManager.send released every queued sender with a single await, so three concurrent
+  sends put two turns in flight at once - exactly the shape of concurrent calls to a persistent
+  agent tool. The wait is a while-loop now, pinned by a four-sender overlap test.
+- ApiProviderBase labeled every tool_call event source "mcp", including agent:* tools; the event
+  source union gains "agent" (code and spec).
+
+Tests: 315 passing. REST spec/impl both at 33 routes; spec fences and TOC anchors verified.

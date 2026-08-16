@@ -17,6 +17,9 @@ export interface ApiMessage {
   /** Set on assistant messages that requested tools, and on the tool results answering them. */
   toolCalls?: ApiToolCall[];
   toolCallId?: string;
+  /** On tool results: the registry id of the tool that produced them (wire formats that key
+   *  responses by function name, like Gemini, rebuild the name from this). */
+  toolId?: string;
 }
 
 export interface ApiToolCall {
@@ -173,7 +176,7 @@ export abstract class ApiProviderBase implements AgentProvider {
             tool: call.name,
             toolId: call.toolId,
             arguments: call.arguments,
-            source: { type: "mcp" },
+            source: { type: call.toolId.startsWith("agent:") ? "agent" : "mcp" },
           });
 
           const started = Date.now();
@@ -206,6 +209,7 @@ export abstract class ApiProviderBase implements AgentProvider {
           working.push({
             role: "tool",
             toolCallId: call.id,
+            toolId: call.toolId,
             content: JSON.stringify(outcome.ok ? (outcome.content ?? null) : { error: outcome.error }),
           });
         }
