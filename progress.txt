@@ -746,3 +746,30 @@ from, and the burst run passes: Noted -> /model haiku -> MAPLE. The EOF auto-den
 with the agent explaining the denial in its reply.
 
 Tests: 293 passing.
+
+--- 2026-08-16 ---
+API providers: adapters that speak HTTP instead of driving a CLI (new spec 12.5).
+
+The protocol piece is SessionToolExecutor: the core injects it into start options, and an adapter
+that runs the agent loop itself calls tools back through agent.tools.call - so permission rules,
+ask-mode approval, and the audit trail apply to API providers natively, with no permission-prompt
+hook. ApiProviderBase carries the loop (bounded rounds, working-copy history committed only on
+success, denials fed back to the model as results); a subclass implements detect() plus complete(),
+one round trip in its wire format.
+
+Shipped under @jeonhui/agentbridge/api:
+- OpenAICompatProvider - the chat-completions dialect; one adapter covers OpenAI, LiteLLM,
+  OpenRouter, Ollama, vLLM via baseUrl.
+- LiteLLMProvider - the same adapter with LiteLLM's defaults filled in.
+- GeminiApiProvider - generateContent REST; how Gemini returns after the CLI retired, same
+  GEMINI_API_KEY. Antigravity re-confirmed GUI-only, nothing to drive headlessly.
+
+Wire names to tool ids map through a per-request table, not a reversible encoding - no encoding
+survives tool names containing the separator, and the collision test proves the table does.
+
+Verified against wire-accurate fake servers (the same discipline as the MCP fixtures), including
+the money test: OpenAICompatProvider inside a full AgentBridge + McpManager + PermissionManager,
+model requests write_file, ask-mode approval lands the write; the deny run feeds AB-4001 back to
+the model and the file survives untouched.
+
+Tests: 302 passing.

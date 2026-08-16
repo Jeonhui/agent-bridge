@@ -73,6 +73,11 @@ export interface SessionManagerOptions {
   resolveMcp?: (serverIds: string[]) => unknown[];
   /** Resolves secret:// references in session environment variables (spec 26.3). */
   secrets?: SecretResolver;
+  /** Executes tools for adapters that run the agent loop themselves (spec 12.5). */
+  tools?: {
+    list: (sessionId: string) => unknown[];
+    call: (sessionId: string, toolId: string, args: unknown) => Promise<unknown>;
+  };
   /** Supplies the permission prompt tool for sessions in `ask` mode (spec 25.4). */
   permissionPrompt?: (
     sessionId: string,
@@ -117,6 +122,7 @@ export class SessionManager {
   readonly #permissionPrompt:
     | ((sessionId: string) => Promise<{ server: unknown; toolName: string } | undefined>)
     | undefined;
+  readonly #tools: SessionManagerOptions["tools"];
 
   constructor(options: SessionManagerOptions) {
     this.#providers = options.providers;
@@ -128,6 +134,16 @@ export class SessionManager {
     this.#logger = options.logger;
     this.#secrets = options.secrets;
     this.#permissionPrompt = options.permissionPrompt;
+    this.#tools = options.tools;
+  }
+
+  #executorFor(sessionId: string): unknown {
+    const bridge = this.#tools;
+    if (!bridge) return undefined;
+    return {
+      list: () => bridge.list(sessionId),
+      call: (toolId: string, args: unknown) => bridge.call(sessionId, toolId, args),
+    };
   }
 
   /**
@@ -229,8 +245,10 @@ export class SessionManager {
       // process ever sees the real value (spec 26.3).
       const env = await resolveSecrets(options.env, this.#secrets);
 
+      const toolExecutor = this.#executorFor(id);
       record.startOptions = {
         sessionId: id,
+        ...(toolExecutor ? { toolExecutor } : {}),
         ...(mcpServers.length > 0 ? { mcpServers } : {}),
         ...(preauthorized.length > 0 ? { preauthorizedMcpServers: preauthorized } : {}),
         ...(permissionPrompt ? { permissionPrompt } : {}),
@@ -387,8 +405,10 @@ export class SessionManager {
     this.#transition(record, "resume");
 
     try {
+      const toolExecutor = this.#executorFor(record.info.id);
       record.startOptions = {
         sessionId: record.info.id,
+        ...(toolExecutor ? { toolExecutor } : {}),
         ...(record.info.workingDirectory ? { workingDirectory: record.info.workingDirectory } : {}),
         ...(env ? { env } : {}),
         ...(record.info.model ? { model: record.info.model } : {}),

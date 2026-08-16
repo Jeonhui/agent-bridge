@@ -61,6 +61,10 @@
     "./sdk": {
       "types": "./dist/sdk/index.d.ts",
       "default": "./dist/sdk/index.js"
+    },
+    "./api": {
+      "types": "./dist/provider/api/index.d.ts",
+      "default": "./dist/provider/api/index.js"
     }
   },
   "files": [

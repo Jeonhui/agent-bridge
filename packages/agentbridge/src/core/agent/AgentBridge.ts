@@ -140,6 +140,10 @@ export class AgentBridge {
       defaultWorkingDirectory: this.#config.workingDirectory,
       defaultPermissionMode: this.#config.defaultPermissionMode,
       resolveMcp: (serverIds) => this.#mcp?.resolveForSession(serverIds) ?? [],
+      tools: {
+        list: (sessionId) => (this.#mcp ? this.tools.list({ sessionId }) : []),
+        call: (sessionId, toolId, args) => this.tools.call(toolId, args, { sessionId }),
+      },
       permissionPrompt: (sessionId) =>
         this.#permissions?.promptTool?.(sessionId) ?? Promise.resolve(undefined),
     });

@@ -38,6 +38,29 @@ export interface ResolvedMcpServer {
   toolPrefix?: string;
 }
 
+/**
+ * Lets an adapter execute tools through the core instead of injecting them into a CLI.
+ *
+ * CLI agents receive MCP servers and run tools themselves; API agents have no process to inject
+ * into, so they call back through this. Every call runs the same path as agent.tools.call for the
+ * session — permission rules, ask-mode approval, audit — which is why API providers get native
+ * `ask` support without the permission-prompt hook.
+ */
+export interface SessionToolExecutor {
+  list(): Array<{
+    id: string;
+    name: string;
+    description: string;
+    inputSchema: unknown;
+    permissions: string[];
+  }>;
+  call(toolId: string, args: unknown): Promise<{
+    ok: boolean;
+    content?: unknown;
+    error?: { code: string; message: string; retryable: boolean };
+  }>;
+}
+
 export interface AgentStartOptions {
   sessionId: string;
   workingDirectory?: string;
@@ -65,6 +88,8 @@ export interface AgentStartOptions {
     server: ResolvedMcpServer;
     toolName: string;
   };
+  /** Present when the core can execute tools on the adapter's behalf (spec 12.5). */
+  toolExecutor?: SessionToolExecutor;
 }
 
 export interface ProviderSessionHandle {

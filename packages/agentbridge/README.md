@@ -1,6 +1,6 @@
 # AgentBridge
 
-**Use the AI agents already installed on your machine — Claude Code, Codex — from your own program.**
+**Use the AI agents already installed on your machine — Claude Code, Codex — or any model API, from your own program.**
 
 You write an app. AgentBridge runs the agent CLI for you, streams its replies back as events, lets
 you hand the agent your own tools, and asks *you* before the agent touches anything.
@@ -48,6 +48,7 @@ One package. Import only the part you need:
 | `@jeonhui/agentbridge` | Sessions, events, errors, storage, logging, secrets |
 | `@jeonhui/agentbridge/claude` | The Claude Code adapter |
 | `@jeonhui/agentbridge/codex` | The Codex CLI adapter |
+| `@jeonhui/agentbridge/api` | API providers: OpenAI-compatible endpoints, LiteLLM, Gemini API |
 | `@jeonhui/agentbridge/mcp` | Register MCP servers and give agents your tools |
 | `@jeonhui/agentbridge/permission` | Decide which tool calls may run; show an approval UI |
 | `@jeonhui/agentbridge/runtime` | Expose everything over local REST + WebSocket |
@@ -210,6 +211,34 @@ await new AgentBridgeMcpServer({ agent }).serveStdio();
 
 Call depth is capped (default 2), so a session AgentBridge created cannot recurse into itself.
 
+### No agent CLI? Talk to a model API
+
+Not every machine has an agent CLI installed. The `/api` providers speak HTTP instead: point one at
+any OpenAI-compatible endpoint — LiteLLM, OpenRouter, Ollama, vLLM, OpenAI itself — or at the
+Gemini API, and it behaves like every other provider. AgentBridge supplies the agent loop the CLI
+would have brought, and executes the model's tool calls through the same MCP and permission
+machinery, so ask-mode approval works with no extra setup:
+
+```typescript
+import { LiteLLMProvider, OpenAICompatProvider, GeminiApiProvider } from "@jeonhui/agentbridge/api";
+
+agent.registerProvider(new LiteLLMProvider());                    // http://127.0.0.1:4000/v1
+agent.registerProvider(new GeminiApiProvider());                  // needs GEMINI_API_KEY
+agent.registerProvider(new OpenAICompatProvider({                 // any compatible endpoint
+  id: "ollama",
+  baseUrl: "http://127.0.0.1:11434/v1",
+  defaultModel: "llama3.2",
+}));
+
+const session = await agent.sessions.create({ provider: "litellm", model: "gpt-4o", mcp: ["fs"] });
+```
+
+Sessions, events, `/model`, `/tools`, MCP bindings, and approvals all work identically. The one
+honest difference: `resume` is `false` — the conversation lives in process memory, so a restart
+starts fresh. Writing your own is two methods: extend `ApiProviderBase` and implement `detect()`
+plus `complete()` (one request/response in your wire format); the loop, history, abort handling,
+and permission flow are inherited.
+
 ### Use it from a web page
 
 The runtime itself is Node-only — it spawns CLI processes and reads the OS keychain, which no
@@ -287,22 +316,24 @@ unsupported.
 | --- | --- |
 | **Claude Code** | ✅ Verified end to end against the real CLI: streaming, resume, MCP tools, approval hook |
 | **Codex** | ⚠️ Adapter implemented and tested against captured output, but no turn has completed on the dev machine (the account rejects every model). `pnpm scenario:codex` shows it failing *correctly*. Run `codex update` and retry |
-| **Gemini** | ❌ Removed. Google retired the individual sign-in the CLI used; there is currently nothing an adapter can drive on a personal account. Comes back when a turn can complete end to end |
+| **OpenAI-compatible APIs** (LiteLLM, OpenRouter, Ollama, vLLM, OpenAI) | ✅ `OpenAICompatProvider` / `LiteLLMProvider`, verified against wire-accurate fake servers including the full MCP + ask-approval loop |
+| **Gemini (API)** | ✅ `GeminiApiProvider` with `GEMINI_API_KEY`, verified against a wire-accurate fake server |
+| **Gemini (CLI)** | ❌ Removed. Google retired the individual sign-in the CLI used, and its successor (Antigravity) is a GUI IDE with no headless entry point. Comes back if a CLI turn can complete end to end — use the API provider meanwhile |
 
 ## Examples
 
 | Example | Shows | Needs |
 | --- | --- | --- |
-| [`examples/chat`](https://github.com/Jeonhui/agent-bridge/tree/main/examples/chat) | **A complete host app**: terminal chat, tools, interactive y/N approvals | Claude CLI |
-| [`examples/basic`](https://github.com/Jeonhui/agent-bridge/tree/main/examples/basic) | Stream a reply into your program | Claude CLI |
-| [`examples/mcp`](https://github.com/Jeonhui/agent-bridge/tree/main/examples/mcp) | Give the agent your tools, watch the calls | Claude CLI |
-| [`examples/tools`](https://github.com/Jeonhui/agent-bridge/tree/main/examples/tools) | Approval flow, no agent required | nothing |
-| [`examples/runtime-python`](https://github.com/Jeonhui/agent-bridge/tree/main/examples/runtime-python) | Drive a session from Python | Claude CLI |
+| [`examples/chat`](examples/chat) | **A complete host app**: terminal chat, tools, interactive y/N approvals | Claude CLI |
+| [`examples/basic`](examples/basic) | Stream a reply into your program | Claude CLI |
+| [`examples/mcp`](examples/mcp) | Give the agent your tools, watch the calls | Claude CLI |
+| [`examples/tools`](examples/tools) | Approval flow, no agent required | nothing |
+| [`examples/runtime-python`](examples/runtime-python) | Drive a session from Python | Claude CLI |
 
 ## Documentation
 
 The full design — API contracts, the event protocol, error codes, acceptance scenarios — lives in
-the [Product & Functional Specification](https://github.com/Jeonhui/agent-bridge/blob/main/docs/AgentBridge-Product-Spec.md). Code comments cite spec
+the [Product & Functional Specification](docs/AgentBridge-Product-Spec.md). Code comments cite spec
 section numbers, so the two can be checked against each other.
 
 ---

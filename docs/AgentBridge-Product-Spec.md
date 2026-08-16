@@ -533,6 +533,17 @@ export interface AgentStartOptions {
   model?: string;
   systemPrompt?: string;
   resumeToken?: string;               // provider-specific resume token
+  toolExecutor?: SessionToolExecutor; // present when the core executes tools for the adapter (12.5)
+}
+
+/** How an adapter that runs the agent loop itself asks the core to execute tools (12.5). */
+export interface SessionToolExecutor {
+  list(): Array<{ id: string; name: string; description: string; inputSchema: unknown; permissions: string[] }>;
+  call(toolId: string, args: unknown): Promise<{
+    ok: boolean;
+    content?: unknown;
+    error?: { code: string; message: string; retryable: boolean };
+  }>;
 }
 
 /** Injection-ready configuration resolved when binding to a session. Secret references are already expanded. */
@@ -639,6 +650,50 @@ detectProviders()
 
 - Detection runs in parallel, and one adapter's failure never aborts the sweep. (MUST)
 - Uninstalled providers still appear in the results with `available: false` and a `reason`. (MUST)
+
+### 12.5 API providers and the tool executor
+
+A CLI agent brings its own agent loop; a model API is just a completion endpoint. `ApiProviderBase`
+(exported from `@jeonhui/agentbridge/api`) supplies the missing loop so that an HTTP endpoint
+behaves like any other provider: it keeps the conversation history per session, sends it with the
+session's tools on every turn, and when the model requests a tool it executes the call through
+`AgentStartOptions.toolExecutor` — the same path as `agent.tools.call` — so permission rules,
+ask-mode approval, and the audit trail apply with no adapter-specific machinery. (MUST)
+
+```text
+ApiProviderBase.send()
+  ├─ history + user turn → complete()          (subclass: one wire-format round trip)
+  ├─ model returns tool calls?
+  │    ├─ emit tool_call
+  │    ├─ toolExecutor.call(toolId, args)      → PermissionManager → McpManager
+  │    ├─ emit tool_result / tool_error        (a denial is a result the model reads, AB-4001)
+  │    └─ append the result, loop (bounded by maxToolRounds, default 8)
+  └─ model returns text → emit message, commit the working copy into history
+```
+
+Rules the base class enforces:
+
+- A subclass implements exactly two members: `detect()` and `complete()` — one request/response in
+  its wire format. Everything else (loop, history, abort, events) is shared. (MUST)
+- The turn mutates a working copy; history is committed only when the turn succeeds, so a failed or
+  aborted turn never leaves a dangling message to replay. (MUST)
+- A permission denial, an unknown tool id, or a rejected executor call becomes a tool result the
+  model reads — the loop continues and the model decides what to do about the refusal. (MUST)
+- `capabilities.resume` is `false`: the history lives in process memory, and claiming otherwise
+  would be worse than saying so. `permissionHook` is `true` natively — no prompt tool is needed
+  because every call already runs through the core. (MUST)
+- Tool ids like `mcp:server:name` are not valid wire names in every dialect. The mapping between
+  registry ids and wire names is a per-request table, not a reversible encoding, because no
+  encoding survives tool names that contain the separator. (MUST)
+
+Shipped implementations:
+
+| Provider | Export | Speaks | Notes |
+| --- | --- | --- | --- |
+| `OpenAICompatProvider` | `/api` | OpenAI chat-completions | One adapter, many backends: OpenAI, LiteLLM, OpenRouter, Ollama, vLLM — pick with `baseUrl` |
+| `LiteLLMProvider` | `/api` | Same dialect | Defaults filled in: `http://127.0.0.1:4000/v1`, `LITELLM_BASE_URL` / `LITELLM_API_KEY` |
+| `GeminiApiProvider` | `/api` | `generateContent` REST | How Gemini returns after the CLI retired (33.2); takes the same `GEMINI_API_KEY` |
+
 ---
 
 ## 13. Session specification
@@ -2181,7 +2236,7 @@ external app: agent.permissions.approve(requestId) / deny(requestId)
 | Scheduler, task queue, background agent | Phase 4 |
 | MCP marketplace, install, update, versioning, private registry | Phase 4 |
 | Cloud sync | Undecided (requires revisiting the local-first principle) |
-| Gemini provider | Removed from the MVP — see 33.2 |
+| Gemini CLI provider | Removed from the MVP — see 33.2; the model family is reachable through `GeminiApiProvider` (12.5) |
 | Multi-agent orchestration | Phase 4 |
 
 ### 29.3 Definition of done
@@ -2413,7 +2468,9 @@ can run is a liability: it invites bug reports for a path the project cannot rep
 drive it, and a truthful "not supported" beats a detected entry that fails at session creation.
 
 Reinstate it when a turn can be completed end to end and the `-o json` success shape has been
-captured from a live run rather than guessed.
+captured from a live run rather than guessed. Until then the Gemini model family is reachable
+through `GeminiApiProvider` (12.5), which speaks the REST API directly with the same
+`GEMINI_API_KEY` — the credential survived the CLI's retirement even though the sign-in did not.
 
 This is risk R1 arriving early and harder than written: the table anticipated flags and output
 formats drifting, not an authentication path being withdrawn.
