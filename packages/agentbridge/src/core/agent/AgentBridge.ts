@@ -377,7 +377,16 @@ export class AgentBridge {
 
   #requireProvider(id: string): ProviderRegistration {
     const provider = this.#registry.get(id);
-    if (!provider) throw new AgentBridgeError("AB-1001", { details: { providerId: id } });
+    if (!provider) {
+      const registered = [...this.#registry.keys()];
+      throw new AgentBridgeError("AB-1001", {
+        message:
+          registered.length === 0
+            ? `Unknown provider "${id}" — no providers are registered. Call agent.registerProvider(new ClaudeProvider()) before creating a session.`
+            : `Unknown provider "${id}". Registered providers: ${registered.join(", ")}.`,
+        details: { providerId: id, registered },
+      });
+    }
     return provider;
   }
 

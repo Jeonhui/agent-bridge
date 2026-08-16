@@ -28,4 +28,9 @@ export {
 } from "./builtin.js";
 
 export { StreamParser, type ParsedLine } from "./process/StreamParser.js";
-export { ProcessRunner, type ProcessExit, type ProcessRunnerOptions } from "./process/ProcessRunner.js";
+export {
+  ProcessRunner,
+  type ProcessExit,
+  type ProcessRunnerOptions,
+  type ProcessSignal,
+} from "./process/ProcessRunner.js";

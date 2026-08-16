@@ -651,3 +651,24 @@ directories before committing.
 
 The npm copy is generated from the same file with repo-relative links absolutized, since npm
 resolves relative links against the package directory and serves 404s.
+
+[2026-08-16] DX audit: pretended to be a new developer, found three walls, removed them
+
+Method: installed the published package into fresh projects and followed the README exactly - plain
+ESM, TypeScript 7 with bundler resolution, CJS require, and the three most likely first mistakes.
+
+Found and fixed, each verified against a packed tarball rather than the workspace:
+1. TypeScript users without @types/node hit a wall of "Cannot find namespace 'NodeJS'" from our own
+   .d.ts - and installing @types/node did not even help under TS 7. The real fix was not a
+   dependency but restraint: the public surface no longer leaks NodeJS.Platform or NodeJS.Signals
+   (now string and a self-contained ProcessSignal union). Zero type errors with zero @types.
+2. The quickstart sprayed three JSON log lines to stderr, because the library defaulted to info.
+   A library should be quiet; the daemon opts into info explicitly. Default is warn now.
+3. The most common first error - forgetting registerProvider - said only "Unknown provider id".
+   It now coaches: names the id, lists what is registered, and says what call is missing.
+
+Also learned: CJS require() of this ESM package works on modern Node (require-esm landed in
+20.19/22.12), and TS 7 has removed node10 resolution outright, so the legacy-tsconfig cohort breaks
+on their own config before ever reaching our subpath exports.
+
+0.1.3 ships these plus the rewritten README onto the npm page.

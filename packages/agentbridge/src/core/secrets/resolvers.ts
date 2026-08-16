@@ -43,9 +43,11 @@ export class MapSecretResolver implements SecretResolver {
  * secret never lands in a config file that a backup or a repository could pick up.
  */
 export class KeychainSecretResolver implements SecretResolver {
-  readonly #platform: NodeJS.Platform;
+  // Typed as string rather than NodeJS.Platform so the published .d.ts compiles for consumers
+  // who do not have @types/node — the switch below narrows to the platforms we support anyway.
+  readonly #platform: string;
 
-  constructor(platform: NodeJS.Platform = process.platform) {
+  constructor(platform: string = process.platform) {
     this.#platform = platform;
   }
 

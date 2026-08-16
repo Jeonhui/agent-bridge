@@ -13,9 +13,12 @@ export interface ProcessRunnerOptions {
   onStderr?: (chunk: string) => void;
 }
 
+/** The signals this runner ever sends. A self-contained union keeps NodeJS types out of the public surface. */
+export type ProcessSignal = "SIGINT" | "SIGTERM" | "SIGKILL";
+
 export interface ProcessExit {
   code: number | null;
-  signal: NodeJS.Signals | null;
+  signal: string | null;
   stderr: string;
 }
 
@@ -77,7 +80,7 @@ export class ProcessRunner {
     });
 
     this.#exited = new Promise<ProcessExit>((resolve) => {
-      const finish = (code: number | null, signal: NodeJS.Signals | null) => {
+      const finish = (code: number | null, signal: string | null) => {
         this.#hasExited = true;
         if (this.#killTimer) clearTimeout(this.#killTimer);
         resolve({ code, signal, stderr: this.#stderr });
@@ -104,7 +107,7 @@ export class ProcessRunner {
   }
 
   /** Sends a signal without waiting. Used by interrupt (spec 25.5). */
-  signal(sig: NodeJS.Signals = "SIGINT"): void {
+  signal(sig: ProcessSignal = "SIGINT"): void {
     if (this.running) this.#child?.kill(sig);
   }
 

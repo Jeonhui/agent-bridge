@@ -755,7 +755,7 @@ await agent.stop();    // tear down every session, MCP connection, and process
 ```typescript
 export interface AgentBridgeConfig {
   dataDir?: string;                     // defaults to ~/.agentbridge
-  logLevel?: "trace" | "debug" | "info" | "warn" | "error";
+  logLevel?: "trace" | "debug" | "info" | "warn" | "error";   // defaults to "warn"
   defaultPermissionMode?: PermissionMode;      // defaults to "ask"
   approvalTimeoutMs?: number;                  // defaults to 120000
   providers?: Record<string, ProviderConfig>;
@@ -2080,7 +2080,9 @@ external app: agent.permissions.approve(requestId) / deny(requestId)
 | `warn` | Retries, backpressure drops, unsupported-capability fallbacks |
 | `error` | Failed operations, abnormal process exits |
 
-- Default level is `info`, with daily file rotation and 7-day retention (configurable). (SHOULD)
+- The embedded library defaults to `warn`, so importing it does not write JSON to stderr on every
+  session; the daemon runs at `info`, where lifecycle logs are the point. File rotation is daily
+  with 7-day retention (configurable). (SHOULD)
 - Assign a `traceId` per request and per turn to correlate events with logs. (SHOULD)
 
 ---

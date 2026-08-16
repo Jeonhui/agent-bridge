@@ -31,7 +31,9 @@ export type ResolvedConfig = Required<
 export function resolveConfig(config: AgentBridgeConfig = {}): ResolvedConfig {
   return {
     dataDir: config.dataDir ?? join(homedir(), ".agentbridge"),
-    logLevel: config.logLevel ?? "info",
+    // "warn" so an embedded library does not write JSON to stderr on every session;
+    // the daemon passes "info" explicitly, where lifecycle logs are the point (spec 27.4).
+    logLevel: config.logLevel ?? "warn",
     defaultPermissionMode: config.defaultPermissionMode ?? "ask",
     approvalTimeoutMs: config.approvalTimeoutMs ?? 120_000,
     eventRetentionPerSession: config.eventRetentionPerSession ?? 1000,
