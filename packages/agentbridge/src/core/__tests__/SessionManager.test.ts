@@ -109,6 +109,24 @@ describe("SessionManager (spec 10.3 / 13.2)", () => {
     assert.equal(second?.queued, true);
   });
 
+  it("accumulates usage events into the session and adopts the reported model", async () => {
+    const provider = fakeProvider({
+      onSend: async (_message, emit) => {
+        emit({ type: "usage", model: "served-model-v2", inputTokens: 10, outputTokens: 4, totalTokens: 14 });
+        emit({ type: "message", role: "assistant", content: "ok", delta: false, done: true });
+      },
+    });
+    const { manager } = harness(provider);
+    const session = await manager.create({ provider: "fake", model: "requested-model" });
+
+    await manager.send(session.id, "one");
+    await manager.send(session.id, "two");
+
+    const info = manager.get(session.id);
+    assert.deepEqual(info.usage, { inputTokens: 20, outputTokens: 8, turns: 2 });
+    assert.equal(info.model, "served-model-v2", "the provider's report is the ground truth");
+  });
+
   it("keeps three queued senders serialized, not just two", async () => {
     // Two waiters behind one turn used to be released together by a single await; the third
     // sender is what exposes it, so this test pins the while-loop behavior.

@@ -31,6 +31,8 @@ export interface ProviderSummary {
   name: string;
   available: boolean;
   version?: string;
+  /** The model used when a session does not pick one. */
+  defaultModel?: string;
   reason?: string;
 }
 

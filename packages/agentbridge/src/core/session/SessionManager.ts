@@ -489,6 +489,19 @@ export class SessionManager {
   }
 
   #emit(record: SessionRecord, payload: AgentEventPayload, turnId?: string): void {
+    if (payload.type === "usage") {
+      const usage = record.info.usage ?? { inputTokens: 0, outputTokens: 0, turns: 0 };
+      usage.inputTokens += payload.inputTokens ?? 0;
+      usage.outputTokens += payload.outputTokens ?? 0;
+      usage.turns += 1;
+      record.info.usage = usage;
+      // The provider names the model that actually served the turn - the ground truth the host
+      // asked to see, so it wins over whatever the session was created with.
+      if (payload.model) record.info.model = payload.model;
+      record.info.updatedAt = new Date();
+      void this.#persist(record);
+    }
+
     const event = {
       id: randomUUID(),
       seq: record.seq.next(),

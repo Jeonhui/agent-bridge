@@ -188,10 +188,158 @@ describe("OpenAICompatProvider (spec 12.5)", () => {
   });
 });
 
+/** A scripted SSE endpoint: each request pops a list of chunk objects, sent as `data:` lines. */
+async function fakeSseEndpoint(
+  responders: Array<(body: any) => unknown[]>,
+): Promise<{ url: string; bodies: any[]; close: () => Promise<void> }> {
+  const bodies: any[] = [];
+  const server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      bodies.push(body);
+      const responder = responders.shift();
+      if (!responder) {
+        res.writeHead(500).end();
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      for (const event of responder(body)) {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
+      res.write("data: [DONE]\n\n");
+      res.end();
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  return { url: `http://127.0.0.1:${port}`, bodies, close: () => new Promise((r) => server.close(() => r())) };
+}
+
+describe("OpenAICompatProvider streaming (spec 12.5)", () => {
+  it("streams deltas, closes with a full message, and reports usage", async () => {
+    const endpoint = await fakeSseEndpoint([
+      (body) => {
+        assert.equal(body.stream, true, "the request must ask for a stream");
+        return [
+          { model: "test-model-v2", choices: [{ delta: { content: "Hel" } }] },
+          { choices: [{ delta: { content: "lo" } }] },
+          { choices: [{ delta: {} }] },
+          { choices: [], usage: { prompt_tokens: 11, completion_tokens: 5 } },
+        ];
+      },
+    ]);
+    try {
+      const provider = new OpenAICompatProvider({ baseUrl: endpoint.url, defaultModel: "test-model" });
+      const handle = await provider.start({ sessionId: "s1" });
+      const { events, emit } = collector();
+      await provider.send(handle, "hi", { emit });
+
+      assert.deepEqual(
+        events.map((e) => [e.type, (e as any).content ?? null, (e as any).delta ?? null]),
+        [
+          ["message", "Hel", true],
+          ["message", "lo", true],
+          ["message", "Hello", false],
+          ["usage", null, null],
+        ],
+      );
+      const usage = events.at(-1) as any;
+      assert.equal(usage.model, "test-model-v2", "the model that actually served the turn");
+      assert.equal(usage.inputTokens, 11);
+      assert.equal(usage.outputTokens, 5);
+      assert.equal(usage.totalTokens, 16);
+      // History commits the full text once, not the deltas.
+      assert.deepEqual(provider.historyOf("s1").map((m) => m.content), ["hi", "Hello"]);
+    } finally {
+      await endpoint.close();
+    }
+  });
+
+  it("reassembles tool calls whose arguments arrive split across chunks", async () => {
+    const endpoint = await fakeSseEndpoint([
+      () => [
+        { choices: [{ delta: { tool_calls: [{ index: 0, id: "call_x", function: { name: "mcp_fs_write_file" } }] } }] },
+        { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: "{\"path\":" } }] } }] },
+        { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: "\"x\"}" } }] } }] },
+      ],
+      () => [
+        { choices: [{ delta: { content: "done" } }] },
+      ],
+    ]);
+    try {
+      const called: Array<[string, unknown]> = [];
+      const provider = new OpenAICompatProvider({ baseUrl: endpoint.url });
+      const handle = await provider.start({
+        sessionId: "s1",
+        toolExecutor: stubExecutor(
+          [{ id: "mcp:fs:write_file", name: "write_file", description: "w", inputSchema: { type: "object" }, permissions: ["write"] }],
+          async (toolId, args) => {
+            called.push([toolId, args]);
+            return { ok: true, content: "written" };
+          },
+        ),
+      });
+      const { events, emit } = collector();
+      await provider.send(handle, "write it", { emit });
+
+      assert.deepEqual(called, [["mcp:fs:write_file", { path: "x" }]]);
+      assert.deepEqual(
+        events.map((e) => e.type),
+        ["tool_call", "tool_result", "message", "message"],
+        "tool round, then the streamed final answer (delta + full)",
+      );
+    } finally {
+      await endpoint.close();
+    }
+  });
+
+  it("accepts a plain JSON answer to a stream request", async () => {
+    // Some compatible servers ignore `stream: true`; a complete answer is not an error.
+    const endpoint = await fakeEndpoint([
+      () => ({ model: "m1", usage: { prompt_tokens: 3, completion_tokens: 2 }, choices: [{ message: { content: "plain" } }] }),
+    ]);
+    try {
+      const provider = new OpenAICompatProvider({ baseUrl: endpoint.url });
+      const handle = await provider.start({ sessionId: "s1" });
+      const { events, emit } = collector();
+      await provider.send(handle, "hi", { emit });
+      assert.deepEqual(events.map((e) => e.type), ["message", "usage"]);
+      assert.equal((events[0] as any).content, "plain");
+    } finally {
+      await endpoint.close();
+    }
+  });
+
+  it("keeps streaming off when the host disables it", async () => {
+    const endpoint = await fakeEndpoint([
+      (body) => {
+        assert.equal(body.stream, undefined, "no stream field when streaming is disabled");
+        return { choices: [{ message: { content: "ok" } }] };
+      },
+    ]);
+    try {
+      const provider = new OpenAICompatProvider({ baseUrl: endpoint.url, streaming: false });
+      assert.equal(provider.capabilities.streaming, false);
+      const handle = await provider.start({ sessionId: "s1" });
+      const { emit } = collector();
+      await provider.send(handle, "hi", { emit });
+    } finally {
+      await endpoint.close();
+    }
+  });
+});
+
 describe("GeminiApiProvider (spec 12.5)", () => {
   it("speaks generateContent: system instruction, key header, text answer", async () => {
     const endpoint = await fakeEndpoint([
-      () => ({ candidates: [{ content: { parts: [{ text: "hi from gemini" }] } }] }),
+      () => ({
+        modelVersion: "gemini-2.0-flash-001",
+        usageMetadata: { promptTokenCount: 9, candidatesTokenCount: 3, totalTokenCount: 12 },
+        candidates: [{ content: { parts: [{ text: "hi from gemini" }] } }],
+      }),
     ]);
     try {
       const provider = new GeminiApiProvider({ apiKey: "k-test", baseUrl: endpoint.url });
@@ -201,6 +349,10 @@ describe("GeminiApiProvider (spec 12.5)", () => {
 
       assert.equal(events[0]?.type, "message");
       assert.equal((events[0] as any).content, "hi from gemini");
+      const usage = events.find((e) => e.type === "usage") as any;
+      assert.equal(usage?.model, "gemini-2.0-flash-001");
+      assert.equal(usage?.inputTokens, 9);
+      assert.equal(usage?.outputTokens, 3);
       const body = endpoint.bodies[0];
       assert.equal(body._path, "/models/gemini-2.0-flash:generateContent");
       assert.equal(body._headers["x-goog-api-key"], "k-test");
@@ -297,6 +449,15 @@ describe("API provider inside AgentBridge (spec 12.5 end to end)", () => {
     });
     return { agent, mcp, workspace };
   }
+
+  it("shows the provider's default model in listings", async () => {
+    const agent = new AgentBridge();
+    agent.registerProvider(new OpenAICompatProvider({ baseUrl: "http://127.0.0.1:9", defaultModel: "llama3.2" }) as never);
+    await agent.start();
+    const providers = await agent.providers.list();
+    assert.equal(providers[0]?.defaultModel, "llama3.2");
+    await agent.stop();
+  });
 
   it("ask-mode approval lets the model's write through", async () => {
     const endpoint = await fakeEndpoint([

@@ -20,6 +20,8 @@ export interface AgentSession {
   model?: string;
   env?: Record<string, string>;
   permissionMode: PermissionMode;
+  /** Cumulative token consumption across turns, when the provider reports it (spec 15.2). */
+  usage?: { inputTokens: number; outputTokens: number; turns: number };
   nativeSessionId?: string;
   createdAt: Date;
   updatedAt: Date;

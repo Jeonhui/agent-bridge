@@ -19,6 +19,8 @@ export type CreateSessionInput =
 
 export interface ProviderRegistration extends SessionProvider {
   readonly name: string;
+  /** The model this provider uses when a session does not pick one. Shown in listings. */
+  readonly defaultModel?: string | undefined;
   detect(): Promise<{ available: boolean; version?: string; reason?: string }>;
 }
 
@@ -244,24 +246,26 @@ export class AgentBridge {
 
   readonly providers = {
     list: async (): Promise<
-      Array<{ id: string; name: string; available: boolean; version?: string; reason?: string }>
+      Array<{ id: string; name: string; available: boolean; version?: string; defaultModel?: string; reason?: string }>
     > =>
       Promise.all(
         [...this.#registry.values()].map(async (provider) => ({
           id: provider.id,
           name: provider.name,
+          ...(provider.defaultModel ? { defaultModel: provider.defaultModel } : {}),
           ...(await provider.detect()),
         })),
       ),
     ids: (): string[] => [...this.#registry.keys()],
     detect: async (
       id?: string,
-    ): Promise<Array<{ id: string; name: string; available: boolean; version?: string; reason?: string }>> => {
+    ): Promise<Array<{ id: string; name: string; available: boolean; version?: string; defaultModel?: string; reason?: string }>> => {
       const providers = id ? [this.#requireProvider(id)] : [...this.#registry.values()];
       return Promise.all(
         providers.map(async (provider) => ({
           id: provider.id,
           name: provider.name,
+          ...(provider.defaultModel ? { defaultModel: provider.defaultModel } : {}),
           ...(await provider.detect()),
         })),
       );

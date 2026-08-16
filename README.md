@@ -233,11 +233,18 @@ agent.registerProvider(new OpenAICompatProvider({                 // any compati
 const session = await agent.sessions.create({ provider: "litellm", model: "gpt-4o", mcp: ["fs"] });
 ```
 
-Sessions, events, `/model`, `/tools`, MCP bindings, and approvals all work identically. The one
-honest difference: `resume` is `false` — the conversation lives in process memory, so a restart
-starts fresh. Writing your own is two methods: extend `ApiProviderBase` and implement `detect()`
-plus `complete()` (one request/response in your wire format); the loop, history, abort handling,
-and permission flow are inherited.
+Sessions, events, `/model`, `/tools`, MCP bindings, and approvals all work identically — and
+replies **stream**: each text chunk arrives as a delta `message` event, with one full message
+closing the turn (so code that only handles whole messages keeps working). Every turn that
+reports token counts also emits a `usage` event naming the model that actually served it, and the
+session accumulates the totals in `session.info.usage`. Everything is configurable per instance —
+`baseUrl`, `apiKey`, `defaultModel`, `headers`, `maxToolRounds`, `requestTimeoutMs`, and
+`streaming` (on by default; set `streaming: false` for servers that reject it).
+
+The one honest difference: `resume` is `false` — the conversation lives in process memory, so a
+restart starts fresh. Writing your own is two methods: extend `ApiProviderBase` and implement
+`detect()` plus `complete()` (one request/response in your wire format); the loop, history, abort
+handling, and permission flow are inherited.
 
 ### Name your agents — and let them call each other
 

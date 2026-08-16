@@ -1,6 +1,7 @@
 import type { ProviderDetection, SessionToolExecutor } from "../core/AgentProvider.js";
 import { ApiProviderBase, apiFetch, type ApiMessage, type ApiTurnResult } from "./base.js";
 
+
 export interface GeminiApiOptions {
   /** Falls back to GEMINI_API_KEY, the same variable the retired CLI documented. */
   apiKey?: string;
@@ -82,6 +83,8 @@ export class GeminiApiProvider extends ApiProviderBase {
       },
       this.id,
     )) as {
+      modelVersion?: string;
+      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number };
       candidates?: Array<{
         content?: { parts?: Array<{ text?: string; functionCall?: { name?: string; args?: unknown } }> };
       }>;
@@ -105,6 +108,19 @@ export class GeminiApiProvider extends ApiProviderBase {
     return {
       ...(text ? { text } : {}),
       ...(calls.length > 0 ? { toolCalls: calls } : {}),
+      ...(json.usageMetadata
+        ? {
+            usage: {
+              model: json.modelVersion ?? model,
+              ...(json.usageMetadata.promptTokenCount !== undefined
+                ? { inputTokens: json.usageMetadata.promptTokenCount }
+                : {}),
+              ...(json.usageMetadata.candidatesTokenCount !== undefined
+                ? { outputTokens: json.usageMetadata.candidatesTokenCount }
+                : {}),
+            },
+          }
+        : {}),
     };
   }
 }

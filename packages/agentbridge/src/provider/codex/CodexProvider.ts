@@ -59,7 +59,7 @@ export class CodexProvider implements AgentProvider {
   readonly #command: string;
   readonly #executablePath: string | undefined;
   readonly #turnTimeoutMs: number;
-  readonly #defaultModel: string | undefined;
+  readonly defaultModel: string | undefined;
   readonly #authorizedSandbox: CodexSandbox;
   readonly #sessions = new Map<string, SessionRuntime>();
 
@@ -67,7 +67,7 @@ export class CodexProvider implements AgentProvider {
     this.#command = options.command ?? "codex";
     this.#executablePath = options.executablePath;
     this.#turnTimeoutMs = options.turnTimeoutMs ?? 300_000;
-    this.#defaultModel = options.defaultModel;
+    this.defaultModel = options.defaultModel;
     this.#authorizedSandbox = options.authorizedSandbox ?? "workspace-write";
   }
 
@@ -214,7 +214,7 @@ export class CodexProvider implements AgentProvider {
     args.push("--sandbox", authorized ? this.#authorizedSandbox : "read-only");
 
     if (options.workingDirectory) args.push("--cd", options.workingDirectory);
-    const model = options.model ?? this.#defaultModel;
+    const model = options.model ?? this.defaultModel;
     if (model) args.push("--model", model);
 
     for (const config of mcpConfigOverrides(options.mcpServers ?? [])) {

@@ -168,6 +168,29 @@ describe("parseClaudeLine (claude 2.1.220 stream-json)", () => {
     assert.equal(parsed.events[0]?.type, "error");
   });
 
+  it("turns result usage into a usage event naming the serving model", () => {
+    const parsed = parseClaudeLine({
+      ...RESULT_SUCCESS,
+      usage: { input_tokens: 7, output_tokens: 12, cache_read_input_tokens: 100 },
+      modelUsage: { "claude-sonnet-4-5-20250929": { inputTokens: 7, outputTokens: 12 } },
+    });
+    assert.equal(parsed.done, true);
+    assert.deepEqual(parsed.events, [
+      {
+        type: "usage",
+        model: "claude-sonnet-4-5-20250929",
+        inputTokens: 7,
+        outputTokens: 12,
+        totalTokens: 19,
+      },
+    ]);
+  });
+
+  it("stays silent when the result line carries no usable usage", () => {
+    const parsed = parseClaudeLine({ ...RESULT_SUCCESS, usage: { cache_creation: {} } });
+    assert.deepEqual(parsed.events, []);
+  });
+
   it("ignores line types it has never seen instead of failing", () => {
     const parsed = parseClaudeLine({ type: "some_future_telemetry", session_id: "s" });
     assert.deepEqual(parsed.events, []);

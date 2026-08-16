@@ -1,5 +1,12 @@
 import type { ProviderDetection, SessionToolExecutor } from "../core/AgentProvider.js";
-import { ApiProviderBase, apiFetch, type ApiMessage, type ApiTurnResult } from "./base.js";
+import {
+  ApiProviderBase,
+  apiFetch,
+  apiFetchSse,
+  type ApiMessage,
+  type ApiTurnResult,
+  type ApiUsage,
+} from "./base.js";
 
 export interface OpenAICompatOptions {
   /** Provider id sessions refer to, e.g. "litellm", "openai", "openrouter". */
@@ -13,6 +20,8 @@ export interface OpenAICompatOptions {
   headers?: Record<string, string>;
   maxToolRounds?: number;
   requestTimeoutMs?: number;
+  /** SSE streaming (`stream: true`). Defaults to true; disable for servers that reject it. */
+  streaming?: boolean;
 }
 
 /**
@@ -29,6 +38,7 @@ export class OpenAICompatProvider extends ApiProviderBase {
     super({
       id: options.id ?? "openai-compat",
       name: options.name ?? "OpenAI-compatible API",
+      streaming: options.streaming ?? true,
       ...(options.defaultModel ? { defaultModel: options.defaultModel } : {}),
       ...(options.maxToolRounds !== undefined ? { maxToolRounds: options.maxToolRounds } : {}),
       ...(options.requestTimeoutMs !== undefined ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
@@ -49,6 +59,7 @@ export class OpenAICompatProvider extends ApiProviderBase {
     messages: ApiMessage[];
     tools: ReturnType<SessionToolExecutor["list"]>;
     signal: AbortSignal;
+    onDelta?: (chunk: string) => void;
   }): Promise<ApiTurnResult> {
     // Wire names allow [A-Za-z0-9_-] only, and no reversible encoding survives tools whose own
     // names contain the separator — so the mapping is a per-request table, not an encoding.
@@ -65,50 +76,36 @@ export class OpenAICompatProvider extends ApiProviderBase {
       };
     });
 
+    const streaming = this.capabilities.streaming && request.onDelta !== undefined;
     const body = {
       model: request.model ?? "default",
       messages: request.messages.map((m) => toWire(m, wireNames)),
       ...(toolDefs.length > 0 ? { tools: toolDefs } : {}),
+      ...(streaming ? { stream: true, stream_options: { include_usage: true } } : {}),
     };
-
-    const json = (await apiFetch(
-      `${this.#baseUrl}/chat/completions`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(this.#apiKey ? { authorization: `Bearer ${this.#apiKey}` } : {}),
-          ...this.#headers,
-        },
-        body: JSON.stringify(body),
-        signal: request.signal,
+    const init = {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(this.#apiKey ? { authorization: `Bearer ${this.#apiKey}` } : {}),
+        ...this.#headers,
       },
-      this.id,
-    )) as {
-      choices?: Array<{
-        message?: {
-          content?: string | null;
-          tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>;
-        };
-      }>;
+      body: JSON.stringify(body),
+      signal: request.signal,
     };
+    const url = `${this.#baseUrl}/chat/completions`;
 
-    const message = json.choices?.[0]?.message;
-    const calls = (message?.tool_calls ?? []).map((call, index) => {
-      const wire = call.function?.name ?? "";
-      const toolId = wireNames.get(wire) ?? wire;
-      return {
-        id: call.id ?? `call_${index}`,
-        toolId,
-        name: toolId.split(":").pop() ?? toolId,
-        arguments: safeParse(call.function?.arguments),
-      };
-    });
+    if (streaming) {
+      const collected = new StreamCollector(request.onDelta!);
+      const plainJson = await apiFetchSse(url, init, this.id, (chunk) => collected.take(chunk as WireChunk));
+      // A server may answer `stream: true` with a plain JSON body; that is a complete answer,
+      // not an error, so it takes the non-streaming route below.
+      if (plainJson === undefined) return collected.result(wireNames);
+      return parseCompletion(plainJson as WireCompletion, wireNames);
+    }
 
-    return {
-      ...(message?.content ? { text: message.content } : {}),
-      ...(calls.length > 0 ? { toolCalls: calls } : {}),
-    };
+    const json = (await apiFetch(url, init, this.id)) as WireCompletion;
+    return parseCompletion(json, wireNames);
   }
 }
 
@@ -126,6 +123,114 @@ export class LiteLLMProvider extends OpenAICompatProvider {
       ...(options.maxToolRounds !== undefined ? { maxToolRounds: options.maxToolRounds } : {}),
       ...(options.requestTimeoutMs !== undefined ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
     });
+  }
+}
+
+interface WireCompletion {
+  model?: string;
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  choices?: Array<{
+    message?: {
+      content?: string | null;
+      tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>;
+    };
+  }>;
+}
+
+interface WireChunk {
+  model?: string;
+  usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
+  choices?: Array<{
+    delta?: {
+      content?: string | null;
+      tool_calls?: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }>;
+    };
+  }>;
+}
+
+function parseCompletion(json: WireCompletion, wireNames: Map<string, string>): ApiTurnResult {
+  const message = json.choices?.[0]?.message;
+  const calls = (message?.tool_calls ?? []).map((call, index) => {
+    const wire = call.function?.name ?? "";
+    const toolId = wireNames.get(wire) ?? wire;
+    return {
+      id: call.id ?? `call_${index}`,
+      toolId,
+      name: toolId.split(":").pop() ?? toolId,
+      arguments: safeParse(call.function?.arguments),
+    };
+  });
+
+  return {
+    ...(message?.content ? { text: message.content } : {}),
+    ...(calls.length > 0 ? { toolCalls: calls } : {}),
+    ...(wireUsage(json) ? { usage: wireUsage(json)! } : {}),
+  };
+}
+
+function wireUsage(json: { model?: string; usage?: { prompt_tokens?: number; completion_tokens?: number } | null }): ApiUsage | undefined {
+  if (!json.usage) return undefined;
+  return {
+    ...(json.model ? { model: json.model } : {}),
+    ...(json.usage.prompt_tokens !== undefined ? { inputTokens: json.usage.prompt_tokens } : {}),
+    ...(json.usage.completion_tokens !== undefined ? { outputTokens: json.usage.completion_tokens } : {}),
+  };
+}
+
+/** Reassembles one chat-completions answer from its SSE chunks: text deltas as they come, tool
+ *  call fragments keyed by index with their argument strings concatenated. */
+class StreamCollector {
+  readonly #onDelta: (chunk: string) => void;
+  #text = "";
+  #model: string | undefined;
+  #usage: ApiUsage | undefined;
+  readonly #calls = new Map<number, { id?: string; name: string; arguments: string }>();
+
+  constructor(onDelta: (chunk: string) => void) {
+    this.#onDelta = onDelta;
+  }
+
+  take(chunk: WireChunk): void {
+    if (chunk.model) this.#model = chunk.model;
+    const usage = wireUsage(chunk);
+    if (usage) this.#usage = usage;
+
+    const delta = chunk.choices?.[0]?.delta;
+    if (!delta) return;
+    if (delta.content) {
+      this.#text += delta.content;
+      this.#onDelta(delta.content);
+    }
+    for (const fragment of delta.tool_calls ?? []) {
+      const index = fragment.index ?? 0;
+      const call = this.#calls.get(index) ?? { name: "", arguments: "" };
+      if (fragment.id) call.id = fragment.id;
+      if (fragment.function?.name) call.name += fragment.function.name;
+      if (fragment.function?.arguments) call.arguments += fragment.function.arguments;
+      this.#calls.set(index, call);
+    }
+  }
+
+  result(wireNames: Map<string, string>): ApiTurnResult {
+    const calls = [...this.#calls.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([index, call]) => {
+        const toolId = wireNames.get(call.name) ?? call.name;
+        return {
+          id: call.id ?? `call_${index}`,
+          toolId,
+          name: toolId.split(":").pop() ?? toolId,
+          arguments: safeParse(call.arguments || undefined),
+        };
+      });
+    const usage = this.#usage ?? (this.#model ? { model: this.#model } : undefined);
+    if (usage && this.#model && !usage.model) usage.model = this.#model;
+
+    return {
+      ...(this.#text ? { text: this.#text } : {}),
+      ...(calls.length > 0 ? { toolCalls: calls } : {}),
+      ...(usage ? { usage } : {}),
+    };
   }
 }
 

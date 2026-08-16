@@ -810,3 +810,25 @@ Post-release verification pass over 0.2.0 found three real defects, fixed in 0.2
   source union gains "agent" (code and spec).
 
 Tests: 315 passing. REST spec/impl both at 33 routes; spec fences and TOC anchors verified.
+
+--- 2026-08-16 (4) ---
+Streaming, usage, and model visibility for API providers (0.3.0).
+
+- OpenAICompatProvider streams by default (stream: true + stream_options.include_usage): each SSE
+  text chunk becomes a delta message event, one full message still closes the turn, so
+  whole-message consumers stay correct (deltas append, full replaces). Tool calls reassemble from
+  indexed fragments with concatenated argument strings. A server that answers stream: true with
+  plain JSON gave a complete answer - accepted, not an error. streaming: false opts out per
+  instance; every other knob (baseUrl, apiKey, defaultModel, headers, maxToolRounds,
+  requestTimeoutMs) stays host-configurable, per the requirement that developers can set all of
+  this up freely.
+- New usage event (spec 15.2): per-turn token counts plus the model that actually served the
+  turn. The base class sums tool-loop rounds into one event; ClaudeProvider parses the result
+  line's usage/modelUsage; Gemini reads usageMetadata/modelVersion. SessionManager accumulates
+  into session.info.usage {inputTokens, outputTokens, turns} and adopts the reported model into
+  session.info.model - the ground truth of what is connected.
+- providers.list()/detect() now include defaultModel, so hosts can show which model a provider
+  will use before any session exists.
+
+Tests: 323 passing (SSE delta/tool-fragment/plain-JSON-fallback/opt-out, usage accumulation,
+Claude usage parse, Gemini usage, defaultModel listing).

@@ -60,14 +60,14 @@ export class ClaudeProvider implements AgentProvider {
   readonly #command: string;
   readonly #executablePath: string | undefined;
   readonly #turnTimeoutMs: number;
-  readonly #defaultModel: string | undefined;
+  readonly defaultModel: string | undefined;
   readonly #sessions = new Map<string, SessionRuntime>();
 
   constructor(options: ClaudeProviderOptions = {}) {
     this.#command = options.command ?? "claude";
     this.#executablePath = options.executablePath;
     this.#turnTimeoutMs = options.turnTimeoutMs ?? 300_000;
-    this.#defaultModel = options.defaultModel;
+    this.defaultModel = options.defaultModel;
   }
 
   async detect(): Promise<ProviderDetection> {
@@ -207,7 +207,7 @@ export class ClaudeProvider implements AgentProvider {
     if (session.handle.nativeSessionId) {
       args.push("--resume", session.handle.nativeSessionId);
     }
-    const model = session.options.model ?? this.#defaultModel;
+    const model = session.options.model ?? this.defaultModel;
     if (model) {
       args.push("--model", model);
     }

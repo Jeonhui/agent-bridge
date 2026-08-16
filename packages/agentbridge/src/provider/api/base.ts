@@ -33,6 +33,15 @@ export interface ApiToolCall {
 export interface ApiTurnResult {
   text?: string;
   toolCalls?: ApiToolCall[];
+  /** Reported by APIs that return it; the base class sums rounds into one usage event per turn. */
+  usage?: ApiUsage;
+}
+
+export interface ApiUsage {
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
 }
 
 export interface ApiProviderBaseOptions {
@@ -43,6 +52,8 @@ export interface ApiProviderBaseOptions {
   maxToolRounds?: number;
   /** Per-request deadline. Defaults to 120000ms. */
   requestTimeoutMs?: number;
+  /** Whether this adapter streams deltas. Reflected in capabilities. Defaults to false. */
+  streaming?: boolean;
 }
 
 interface ApiSession {
@@ -65,16 +76,9 @@ interface ApiSession {
 export abstract class ApiProviderBase implements AgentProvider {
   readonly id: string;
   readonly name: string;
-  readonly capabilities: ProviderCapabilities = {
-    streaming: false,
-    mcp: true,             // tools arrive through the executor rather than injection
-    resume: false,         // history lives in memory; see the class comment
-    interrupt: true,
-    workingDirectory: false,
-    permissionHook: true,  // ask works natively: every tool call runs through the core
-  };
+  readonly capabilities: ProviderCapabilities;
 
-  protected readonly defaultModel: string | undefined;
+  readonly defaultModel: string | undefined;
   readonly #maxToolRounds: number;
   readonly #requestTimeoutMs: number;
   readonly #sessions = new Map<string, ApiSession>();
@@ -85,6 +89,14 @@ export abstract class ApiProviderBase implements AgentProvider {
     this.defaultModel = options.defaultModel;
     this.#maxToolRounds = options.maxToolRounds ?? 8;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? 120_000;
+    this.capabilities = {
+      streaming: options.streaming ?? false,
+      mcp: true,             // tools arrive through the executor rather than injection
+      resume: false,         // history lives in memory; see the class comment
+      interrupt: true,
+      workingDirectory: false,
+      permissionHook: true,  // ask works natively: every tool call runs through the core
+    };
   }
 
   /** Subclasses check whatever credentials their API needs. Must not throw. */
@@ -99,6 +111,8 @@ export abstract class ApiProviderBase implements AgentProvider {
     messages: ApiMessage[];
     tools: ReturnType<SessionToolExecutor["list"]>;
     signal: AbortSignal;
+    /** Streaming adapters call this per text chunk; the base emits delta message events. */
+    onDelta?: (chunk: string) => void;
   }): Promise<ApiTurnResult>;
 
   async start(options: AgentStartOptions): Promise<ProviderSessionHandle> {
@@ -141,6 +155,21 @@ export abstract class ApiProviderBase implements AgentProvider {
     const deadline = setTimeout(() => controller.abort(), this.#requestTimeoutMs * (this.#maxToolRounds + 1));
     deadline.unref?.();
 
+    // Deltas stream as they arrive; the final full message still closes the turn, so a consumer
+    // that only understands whole messages stays correct (delta events append, a full one replaces).
+    const onDelta = (chunk: string): void => {
+      if (chunk === "" || signal?.aborted) return;
+      emit({ type: "message", role: "assistant", content: chunk, delta: true, done: false });
+    };
+    const usageTotal = { inputTokens: 0, outputTokens: 0, sawAny: false, model: undefined as string | undefined };
+    const takeUsage = (usage: ApiUsage | undefined): void => {
+      if (!usage) return;
+      usageTotal.sawAny = true;
+      usageTotal.inputTokens += usage.inputTokens ?? 0;
+      usageTotal.outputTokens += usage.outputTokens ?? 0;
+      if (usage.model) usageTotal.model = usage.model;
+    };
+
     try {
       for (let round = 0; ; round += 1) {
         const result = await this.complete({
@@ -148,14 +177,26 @@ export abstract class ApiProviderBase implements AgentProvider {
           messages: working,
           tools,
           signal: controller.signal,
+          ...(this.capabilities.streaming ? { onDelta } : {}),
         });
 
         if (signal?.aborted) return;
+        takeUsage(result.usage);
 
         const calls = result.toolCalls ?? [];
         if (calls.length === 0) {
           const text = result.text ?? "";
           emit({ type: "message", role: "assistant", content: text, delta: false, done: true });
+          if (usageTotal.sawAny) {
+            const reportedModel = usageTotal.model ?? model;
+            emit({
+              type: "usage",
+              ...(reportedModel ? { model: reportedModel } : {}),
+              inputTokens: usageTotal.inputTokens,
+              outputTokens: usageTotal.outputTokens,
+              totalTokens: usageTotal.inputTokens + usageTotal.outputTokens,
+            });
+          }
           working.push({ role: "assistant", content: text });
           break;
         }
@@ -272,4 +313,82 @@ export async function apiFetch(
       details: { providerId, body: text.slice(0, 200) },
     });
   }
+}
+
+/**
+ * Shared helper: server-sent events. Calls `onData` once per `data:` JSON line ([DONE] excluded).
+ * If the server answers with plain JSON instead - some endpoints ignore `stream: true` - the
+ * parsed body is returned so the caller can fall back to its non-streaming path.
+ */
+export async function apiFetchSse(
+  url: string,
+  init: RequestInit,
+  providerId: string,
+  onData: (data: unknown) => void,
+): Promise<unknown | undefined> {
+  let response: Response;
+  try {
+    response = await fetch(url, init);
+  } catch (error) {
+    throw new AgentBridgeError("AB-1006", {
+      message: `${providerId} request failed: ${String(error)}`,
+      details: { providerId, url },
+      cause: error,
+    });
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new AgentBridgeError("AB-1006", {
+      message: `${providerId} returned ${response.status}: ${text.slice(0, 300)}`,
+      details: { providerId, status: response.status },
+    });
+  }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/event-stream")) {
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new AgentBridgeError("AB-1004", {
+        message: `${providerId} returned neither an event stream nor JSON`,
+        details: { providerId, body: text.slice(0, 200) },
+      });
+    }
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new AgentBridgeError("AB-1004", {
+      message: `${providerId} returned an event stream with no body`,
+      details: { providerId },
+    });
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let newline: number;
+    while ((newline = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (data === "" || data === "[DONE]") continue;
+      try {
+        onData(JSON.parse(data));
+      } catch {
+        throw new AgentBridgeError("AB-1004", {
+          message: `${providerId} sent a malformed stream chunk`,
+          details: { providerId, chunk: data.slice(0, 200) },
+        });
+      }
+    }
+  }
+  return undefined;
 }

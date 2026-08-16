@@ -46,6 +46,33 @@ function contentBlocks(line: Record<string, unknown>): ContentBlock[] {
   return Array.isArray(content) ? (content as ContentBlock[]) : [];
 }
 
+/**
+ * The result line carries `usage` (token counts) and `modelUsage` keyed by the model that
+ * actually served the turn. Both are telemetry the CLI may reshape, so absence is not an error.
+ */
+function usageFromResult(line: Record<string, unknown>): AgentEventPayload | undefined {
+  const usage = line["usage"];
+  if (typeof usage !== "object" || usage === null) return undefined;
+  const u = usage as Record<string, unknown>;
+  const input = typeof u["input_tokens"] === "number" ? u["input_tokens"] : undefined;
+  const output = typeof u["output_tokens"] === "number" ? u["output_tokens"] : undefined;
+  if (input === undefined && output === undefined) return undefined;
+
+  const modelUsage = line["modelUsage"];
+  const model =
+    typeof modelUsage === "object" && modelUsage !== null
+      ? Object.keys(modelUsage as Record<string, unknown>)[0]
+      : undefined;
+
+  return {
+    type: "usage",
+    ...(model ? { model } : {}),
+    ...(input !== undefined ? { inputTokens: input } : {}),
+    ...(output !== undefined ? { outputTokens: output } : {}),
+    ...(input !== undefined && output !== undefined ? { totalTokens: input + output } : {}),
+  };
+}
+
 export function parseClaudeLine(line: Record<string, unknown>): ClaudeParseResult {
   const type = asString(line["type"]);
   const sessionId = asString(line["session_id"]);
@@ -119,6 +146,9 @@ export function parseClaudeLine(line: Record<string, unknown>): ClaudeParseResul
     case "result": {
       const isError = line["is_error"] === true;
       const events: AgentEventPayload[] = [];
+
+      const usage = usageFromResult(line);
+      if (usage) events.push(usage);
 
       if (isError) {
         events.push({

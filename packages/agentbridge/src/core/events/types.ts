@@ -20,6 +20,7 @@ export type AgentEventType =
   | "status"
   | "permission_request"
   | "mcp_status"
+  | "usage"
   | "error";
 
 export type Permission = "READ" | "WRITE" | "EXECUTE" | "NETWORK" | "SYSTEM";
@@ -104,6 +105,18 @@ export interface McpStatusEvent extends AgentEventBase {
   error?: AgentBridgeErrorInfo;
 }
 
+/**
+ * Per-turn resource consumption, emitted by providers that report it. `model` is the model
+ * that actually served the turn, which may differ from what the session asked for.
+ */
+export interface UsageEvent extends AgentEventBase {
+  type: "usage";
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
+
 export interface ErrorEvent extends AgentEventBase {
   type: "error";
   error: AgentBridgeErrorInfo;
@@ -119,6 +132,7 @@ export type AgentEvent =
   | StatusEvent
   | PermissionRequestEvent
   | McpStatusEvent
+  | UsageEvent
   | ErrorEvent;
 
 export type AgentEventOf<E extends AgentEventType> = Extract<AgentEvent, { type: E }>;

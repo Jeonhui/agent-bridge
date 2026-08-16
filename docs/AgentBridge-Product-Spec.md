@@ -685,6 +685,16 @@ Rules the base class enforces:
 - Tool ids like `mcp:server:name` are not valid wire names in every dialect. The mapping between
   registry ids and wire names is a per-request table, not a reversible encoding, because no
   encoding survives tool names that contain the separator. (MUST)
+- Streaming adapters emit each text chunk as a delta message event and still close the turn with
+  one full message, so a consumer that only understands whole messages stays correct: deltas
+  append, a full message replaces. (MUST) A server that answers `stream: true` with a plain JSON
+  body gave a complete answer, and the adapter accepts it rather than erroring. (MUST)
+- Adapters forward reported token counts; the base class sums the rounds of one turn into a
+  single `usage` event naming the model that served it (15.2). Absence of usage data is not an
+  error. (MUST)
+- Every knob is host-configurable per instance: `baseUrl`, `apiKey`, `defaultModel`, `headers`,
+  `maxToolRounds`, `requestTimeoutMs`, and `streaming` (on by default for the OpenAI dialect,
+  off where the wire format has no verified stream). (MUST)
 
 Shipped implementations:
 
@@ -762,6 +772,7 @@ export interface AgentSession {
   model?: string;
   env?: Record<string, string>;
   permissionMode: PermissionMode;   // "ask" | "allow" | "deny"
+  usage?: { inputTokens: number; outputTokens: number; turns: number };   // summed usage events
   createdAt: Date;
   updatedAt: Date;
   lastError?: AgentBridgeErrorInfo;
@@ -893,6 +904,7 @@ interface ProviderInfo {
   available: boolean;
   version?: string;
   executablePath?: string;
+  defaultModel?: string;    // the model used when a session does not pick one
   capabilities: ProviderCapabilities;
   reason?: string;
 }
@@ -1077,6 +1089,7 @@ export type AgentEventType =
   | "status"
   | "permission_request"
   | "mcp_status"
+  | "usage"
   | "error";
 ```
 
@@ -1149,6 +1162,19 @@ export interface McpStatusEvent extends AgentEventBase {
   state: McpConnectionState;
   toolCount?: number;
   error?: AgentBridgeErrorInfo;
+}
+
+/**
+ * Per-turn resource consumption, emitted by providers that report it. `model` names the model
+ * that actually served the turn, which may differ from what the session asked for; the core
+ * adopts it into the session (13.1) so hosts can always see what is really connected.
+ */
+export interface UsageEvent extends AgentEventBase {
+  type: "usage";
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
 }
 
 export interface ErrorEvent extends AgentEventBase {
