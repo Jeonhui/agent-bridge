@@ -1,31 +1,44 @@
 # AgentBridge
 
-A general-purpose local agent runtime that connects AI agents installed on your machine — Claude and Codex today — to any external program, and gives those agents user-defined tools through MCP.
+**Use the AI agents already installed on your machine — Claude Code, Codex — from your own program.**
 
-AgentBridge ships no chat UI. Other programs consume it as a library or as a local runtime.
+You write an app. AgentBridge runs the agent CLI for you, streams its replies back as events, lets
+you hand the agent your own tools, and asks *you* before the agent touches anything.
 
-See the [Product & Functional Specification](docs/AgentBridge-Product-Spec.md) for the full design.
+```text
+        your app  (any language)
+            │
+      ┌─────▼─────────────────────────────┐
+      │           AgentBridge             │
+      │  sessions · events · permissions  │
+      └──┬────────────────────────┬───────┘
+         │ runs                   │ provides tools (MCP)
+   ┌─────▼─────┐            ┌─────▼──────────────┐
+   │ claude /  │            │ your filesystem,   │
+   │ codex CLI │◀──uses────│ your DB, your API…  │
+   └───────────┘            └────────────────────┘
+```
+
+No chat UI is included — that is the point. You build the UI; AgentBridge does the plumbing.
 
 [![npm](https://img.shields.io/npm/v/@jeonhui/agentbridge)](https://www.npmjs.com/package/@jeonhui/agentbridge)
 [![license](https://img.shields.io/npm/l/@jeonhui/agentbridge)](LICENSE)
 
-## Status
+## What you can build with it
 
-Published at 0.1.2. The version number says what it means rather than rounding up: Claude is
-verified end to end against the real CLI, Codex ships an adapter that has never completed a turn on
-the development machine, and Gemini is out. Details under provider status.
-
-| Area | Status |
-| --- | --- |
-| Core, MCP, permissions, runtime, SDK | Implemented |
-| Claude adapter | Implemented, verified end to end |
-| Codex adapter | Implemented, no turn completed here |
-| Gemini adapter | Removed, see provider status |
+- **An editor or desktop app with an AI panel** — stream agent replies into your own UI, and show an
+  approval dialog before the agent writes a file.
+- **A tool the agent can use** — expose your app's features over MCP; the agent calls them like any
+  other tool, under your permission rules.
+- **A Python / Swift / anything integration** — run AgentBridge as a small local daemon and talk
+  REST + WebSocket. No Node required in your app.
+- **Automation that survives restarts** — sessions, tool registrations, and permission rules persist,
+  and a conversation can resume where it left off.
 
 ## Install
 
 ```bash
-pnpm add @jeonhui/agentbridge
+pnpm add @jeonhui/agentbridge        # or npm / yarn
 ```
 
 One package. Import only the part you need:
@@ -35,24 +48,23 @@ One package. Import only the part you need:
 | `@jeonhui/agentbridge` | Sessions, events, errors, storage, logging, secrets |
 | `@jeonhui/agentbridge/claude` | The Claude Code adapter |
 | `@jeonhui/agentbridge/codex` | The Codex CLI adapter |
-| `@jeonhui/agentbridge/provider` | The adapter contract, for writing your own |
 | `@jeonhui/agentbridge/mcp` | Register MCP servers and give agents your tools |
-| `@jeonhui/agentbridge/permission` | Decide which tool calls may run, and show an approval UI |
-| `@jeonhui/agentbridge/runtime` | Expose everything over local REST and WebSocket |
-| `@jeonhui/agentbridge/sdk` | Write host code once and switch transports by configuration |
+| `@jeonhui/agentbridge/permission` | Decide which tool calls may run; show an approval UI |
+| `@jeonhui/agentbridge/runtime` | Expose everything over local REST + WebSocket |
+| `@jeonhui/agentbridge/sdk` | Write host code once, switch transports by configuration |
 | `@jeonhui/agentbridge/mcp-server` | Let an external agent drive AgentBridge |
+| `@jeonhui/agentbridge/provider` | The adapter contract, for writing your own |
 
-It started as twelve packages. Nobody installs a runtime without a provider, or MCP without its
-registry, so the split cost an install decision and bought nothing.
-
-Or run the daemon without installing anything into your project:
+Or skip the library and just run the daemon:
 
 ```bash
-npx @jeonhui/agentbridge-cli agents    # what is installed on this machine
-npx @jeonhui/agentbridge-cli serve     # start the local runtime
+npx @jeonhui/agentbridge-cli agents    # which agent CLIs are installed here?
+npx @jeonhui/agentbridge-cli serve     # start the local runtime, prints URL + token
 ```
 
-## Quickstart
+## Quickstart — first reply in a minute
+
+Requires the `claude` CLI installed and logged in.
 
 ```typescript
 import { AgentBridge } from "@jeonhui/agentbridge";
@@ -69,79 +81,18 @@ await session.send("Summarise this project in one sentence.");
 await agent.stop();
 ```
 
-Requires the `claude` CLI installed and authenticated. `npx @jeonhui/agentbridge-cli agents` reports
-what is available on the machine.
+Every reply, tool call, and status change arrives as an event (`message`, `tool_call`,
+`tool_result`, `status`, `permission_request`, …), each with a per-session sequence number, so your
+UI can render exactly what the agent is doing — and recover the gap after a dropped connection.
 
-## Requirements
+---
 
-- Node.js 20 LTS or newer (22 LTS recommended)
-- pnpm 9 or newer, for working on AgentBridge itself
+## Recipes
 
-## Development
+### Give the agent your own tools
 
-```bash
-pnpm install
-pnpm build
-pnpm test
-```
-
-## Listing local agents
-
-`pnpm agents` reports which agent CLIs are installed on this machine. Add `--json` for machine-readable output.
-
-```text
-ID      NAME         STATUS     VERSION  PATH / REASON
-claude  Claude Code  installed  2.1.220  /Users/you/.local/share/mise/installs/node/24.4.1/bin/claude
-codex   Codex CLI    installed  0.132.0  /opt/homebrew/bin/codex
-```
-
-Detection resolves the binary against `PATH` plus the common install directories, then reads its version. It never throws: a missing or broken CLI is reported as `available: false` with a reason.
-
-Only CLIs AgentBridge can actually drive are listed, so a detected entry never fails at session
-creation. Claude sessions work end to end; Codex is covered under provider status below.
-
-Deleting `dist/` by hand leaves `tsconfig.tsbuildinfo` behind, and `tsc -b` will then consider the build up to date and emit nothing — tests will report zero passing. Use `pnpm clean` or `tsc -b --force` instead.
-
-## Talking to Claude
-
-```typescript
-import { AgentBridge } from "@jeonhui/agentbridge";
-import { ClaudeProvider } from "@jeonhui/agentbridge/claude";
-
-const agent = new AgentBridge();
-agent.registerProvider(new ClaudeProvider());
-await agent.start();
-
-const session = await agent.sessions.create({ provider: "claude", model: "sonnet" });
-session.on("message", (e) => process.stdout.write(e.content));
-session.on("tool_call", (e) => console.log("[tool]", e.tool));
-
-await session.send("Analyze the project structure");
-await agent.stop();
-```
-
-`pnpm scenario:a` runs acceptance scenario A from the spec against the real CLI: two turns, checking event
-ordering, turn ids, status transitions, and that the second turn remembers the first through `--resume`.
-
-```text
-  seq= 2 status running
-  seq= 3 message "ok"
-  seq= 4 status ready
-  seq= 5 status running
-  seq= 6 message "ok"
-  seq= 7 status ready
-
-scenario A PASSED in 7901ms
-```
-
-The adapter runs one CLI process per turn in `--print --output-format stream-json` mode and keeps
-continuity through the CLI's own session id. Its line mapping was built against captured output from
-claude 2.1.220 rather than assumed, and unknown line types are ignored so new CLI telemetry does not
-break the parser.
-
-## Giving an agent your own tools
-
-Register an MCP server, bind it to a session, and the agent can use it:
+Anything you can wrap in an [MCP server](https://modelcontextprotocol.io) becomes a tool the agent
+can call — your filesystem, your database, your internal API:
 
 ```typescript
 import { McpManager } from "@jeonhui/agentbridge/mcp";
@@ -154,288 +105,201 @@ await mcp.add({
   transport: "stdio",
   command: "node",
   args: ["./filesystem-mcp.js", "/workspace"],
-  watch: { enabled: true },
+  watch: { enabled: true },   // edit the server file → tools refresh, session keeps running
 });
 
 const session = await agent.sessions.create({
   provider: "claude",
-  workingDirectory: "/workspace",
-  mcp: ["filesystem"],
+  mcp: ["filesystem"],        // each session picks its own tool set
   permissionMode: "allow",
 });
 ```
 
-`permissionMode` decides who answers. Under `allow`, AgentBridge pre-authorizes the bound servers.
-Under `ask`, the agent consults AgentBridge before each of its own tool calls and your host answers:
+`watch: true` is the development loop: save your MCP server file and the agent sees the new tools
+in about 150 ms, without restarting the session.
+
+### Ask the user before the agent acts
+
+Under `permissionMode: "ask"`, the agent stops before **its own** tool calls and waits for your
+answer:
 
 ```typescript
+import { PermissionManager } from "@jeonhui/agentbridge/permission";
+
 const permissions = new PermissionManager({ promptHook: { enabled: true } });
-
-agent.on("permission_request", (event) => {
-  // The agent wanted this, not your code. Deciding here decides the agent's call.
-  showDialog(event.tool, event.permissions, {
-    onAllow: () => agent.permissions.approve(event.requestId),
-    onDeny: () => agent.permissions.deny(event.requestId),
-  });
-});
-
-permissions.autoApprove(true);   // or answer everything with yes
-```
-
-`pnpm scenario:ask [approve|deny|auto]` proves it against the real CLI:
-
-```text
-[host] asked about mcp__filesystem__write_file (WRITE)
-mode=approve  prompts=1  file="approved write"
-mode=deny     prompts=1  file="before"
-mode=auto     prompts=0  file="approved write"
-```
-
-The agent blocks while waiting, so a host failure, a malformed request, or an unreachable gateway
-all resolve to a denial rather than a hang. See spec 25.4.
-
-`pnpm scenario:b` proves the whole path against the real CLI and a real MCP server:
-
-```text
-  seq= 3 tool_call ToolSearch {"query":"select:mcp__filesystem__write_file"}
-  seq= 5 tool_call mcp__filesystem__write_file {"path":"README.md","content":"# scenario b\n"}
-  seq= 6 tool_result
-  seq= 7 message "done"
-
-file content: "# scenario b\n"
-scenario B PASSED in 6933ms
-```
-
-`pnpm mcp:check` exercises the MCP layer on its own: discovery, permission inference from
-annotations, tool invocation, path-escape rejection, and hot reload (registry diff in 166ms against
-the spec's 3s target).
-
-## Integrating from a host application
-
-A host attaches the pieces it needs and renders its own approval UI:
-
-```typescript
-const agent = new AgentBridge({ defaultPermissionMode: "ask" });
-agent.registerProvider(new ClaudeProvider());
-agent.attachMcp(mcp);
 agent.attachPermissions(permissions);
-await agent.start();
 
-// The host decides. AgentBridge only asks.
 agent.on("permission_request", (event) => {
+  // The agent wants to run event.tool. Your dialog decides.
   showDialog(event.tool, event.permissions, {
     onAllow: () => agent.permissions.approve(event.requestId, { remember: "session" }),
     onDeny: () => agent.permissions.deny(event.requestId),
   });
 });
-
-const result = await agent.tools.call("mcp:filesystem:write_file", { path: "a.txt", content: "hi" });
-if (!result.ok) console.error(result.error);   // AB-4001 when policy denied it
 ```
 
-A denied call resolves with `ok: false` rather than throwing, so a host rendering a list of tools
-does not need a try/catch around every invocation. `pnpm integration:check` exercises this surface
-on its own, without an agent CLI: approve, deny by policy, and confirm the file did not change.
-
-## Using it from another language
-
-`agentbridge serve` starts the daemon with every adapter registered, prints its address and token,
-and writes them to `~/.agentbridge/runtime.json` with owner-only permissions:
-
-```bash
-node apps/runtime/dist/cli.js serve          # or `agentbridge serve` once installed
-node apps/runtime/dist/cli.js agents         # what is installed on this machine
-```
-
-`pnpm serve` runs a smaller version from the repo and prints the same shape:
-
-```json
-{"host":"127.0.0.1","port":60069,"token":"ab_local_51e6b5c9..."}
-```
-
-`scripts/python-client-check.py` drives a real Claude session from Python using only the standard
-library — no SDK, no Node — over REST plus a hand-rolled WebSocket handshake:
+Proven against the real CLI (`pnpm scenario:ask`):
 
 ```text
-  PASS  GET /providers finds claude  (version 2.1.220)
-  PASS  GET /tools lists the MCP tools  (['read_file', 'write_file'])
-  PASS  WebSocket upgrade accepted  (HTTP/1.1 101 Switching Protocols)
-  PASS  streamed a message event over WebSocket  (message)
-  PASS  the response arrived  ('ok')
+mode=approve  the host was asked once   → file written
+mode=deny     the host was asked once   → file unchanged
+mode=auto     autoApprove(true), no ask → file written
 ```
 
-The runtime binds to `127.0.0.1` only, generates a fresh token per start, and compares tokens in
-constant time so a caller cannot learn one character at a time by timing rejections.
-
-## One client, two transports
-
-`@jeonhui/agentbridge/sdk` exposes the same interface whether it runs in-process or against the runtime, so
-moving a feature between them is a configuration change:
+Rules can also decide without asking — glob-match on tool, path, session, or permission class:
 
 ```typescript
+permissions.setRule({
+  id: "workspace-writes-ok",
+  match: { toolPattern: "mcp:filesystem:*", pathScope: "/workspace/**" },
+  effect: "allow",
+  priority: 10,
+  createdAt: new Date().toISOString(),
+});
+```
+
+Everything is deny-by-default: no answer within the timeout means no.
+
+### Use it from Python (or any language)
+
+Start the daemon, then talk plain REST + WebSocket:
+
+```bash
+npx @jeonhui/agentbridge-cli serve
+# {"host":"127.0.0.1","port":60069,"token":"ab_local_..."}
+```
+
+```python
+import requests
+
+session = requests.post(f"{base}/sessions", headers=auth,
+                        json={"provider": "claude"}).json()
+requests.post(f"{base}/sessions/{session['id']}/messages", headers=auth,
+              json={"message": "hello"})
+# events stream over ws://…/events — see examples/runtime-python
+```
+
+The daemon binds to `127.0.0.1` only and mints a fresh token per start.
+`examples/runtime-python/client.py` drives a full session using nothing but the Python standard
+library — that is the whole point of the wire protocol.
+
+### Same code, in-process or over the wire
+
+The SDK exposes one interface over both transports, so moving from an embedded integration to a
+shared daemon is a configuration change, not a rewrite:
+
+```typescript
+import { createClient } from "@jeonhui/agentbridge/sdk";
+
 const client = createClient({ transport: "embedded", agent });
-// or
+// …later, same code, different deployment:
 const client = createClient({ transport: "http", baseUrl, token, webSocket: (u) => new WebSocket(u) });
-
-await client.connect();
-const session = await client.sessions.create({ provider: "claude" });
-session.on("message", (e) => render(e.content));
-await session.send("hello");
 ```
 
-Spec 10.8 makes identical signatures an invariant; the parity suite runs one set of assertions
-against both backends, so a drift between them fails the build rather than surprising an integrator.
+One parity test suite runs against both backends, so they cannot quietly drift apart.
 
-## Letting an agent drive AgentBridge
+### Let an agent drive AgentBridge
 
-`@jeonhui/agentbridge/mcp-server` is the other direction: an external agent connects and uses AgentBridge as
-a set of tools — listing providers, creating sessions, calling registered tools under policy.
+The reverse direction also works: expose AgentBridge itself as an MCP server, and an external agent
+can list providers, create sessions, and call tools — under the same permission rules:
 
 ```typescript
+import { AgentBridgeMcpServer } from "@jeonhui/agentbridge/mcp-server";
 await new AgentBridgeMcpServer({ agent }).serveStdio();
 ```
 
-`pnpm scenario:e` closes the loop against the real CLI: AgentBridge drives Claude, and Claude calls
-back into AgentBridge through its MCP server.
+Call depth is capped (default 2), so a session AgentBridge created cannot recurse into itself.
 
-```text
-  seq= 5 tool_call mcp__agentbridge__agentbridge_providers_list
-  seq= 6 tool_result
-  seq= 7 message "Only one CLI found: Claude Code (id `claude`), avail=true..."
+---
 
-scenario E PASSED in 8546ms
+## Good to know
+
+**Sessions survive restarts.** With file storage (`agentbridge serve` uses it by default), sessions,
+MCP registrations, and permission rules come back after the daemon restarts. A restored session
+returns as `stopped` — its process is gone — but `sessions.resume()` continues the same conversation
+via the provider's own session id.
+
+**Secrets never touch disk in plain text.** Reference them instead of pasting them:
+
+```jsonc
+{ "env": { "GITHUB_TOKEN": "secret://github/token" } }
 ```
 
-Call depth is tracked and capped at 2 by default, so a session AgentBridge created cannot recurse
-back into itself indefinitely.
+The reference is what gets stored and what the API shows (`"***"`); only the spawned process sees
+the real value, resolved from the OS keychain or the environment. An unresolvable reference fails
+loudly (`AB-6004`) instead of passing the literal through — a fake-looking token that "works" until
+it hits the network is much harder to debug.
 
-## Examples
-
-| Example | What it shows | Needs |
-| --- | --- | --- |
-| `examples/basic` | Connect to a local agent and stream its reply | Claude CLI |
-| `examples/mcp` | Give an agent your own tools and watch the tool calls | Claude CLI |
-| `examples/tools` | Call tools directly while the host answers the approval prompt | nothing |
-| `examples/runtime-python` | Drive a session from Python over REST and WebSocket | Claude CLI |
-
-`examples/tools` runs without any agent installed, because the tool and permission surface is what a
-UI binds to and it should be explorable on its own.
+**Logs cannot leak.** Every logged field passes through redaction: message bodies become a length +
+digest, tool arguments become key names + digest, and anything named like a secret becomes `***`.
 
 ## Provider status
 
-Claude is verified end to end. The others say plainly what has and has not been confirmed, because
-an adapter that looks supported and then fails is worse than one labelled unsupported.
+Honesty over optimism — an adapter that looks supported and then fails is worse than one labelled
+unsupported.
 
-### Codex
+| Provider | Status |
+| --- | --- |
+| **Claude Code** | ✅ Verified end to end against the real CLI: streaming, resume, MCP tools, approval hook |
+| **Codex** | ⚠️ Adapter implemented and tested against captured output, but no turn has completed on the dev machine (the account rejects every model). `pnpm scenario:codex` shows it failing *correctly*. Run `codex update` and retry |
+| **Gemini** | ❌ Removed. Google retired the individual sign-in the CLI used; there is currently nothing an adapter can drive on a personal account. Comes back when a turn can complete end to end |
 
-The adapter is implemented against event names read out of the codex 0.132.0 binary and
-confirmed against live output (`thread.started`, `turn.started/completed/failed`,
-`item.started/updated/completed`). It spawns the CLI, parses the real stream, captures the thread id
-for resume, and unwraps Codex's nested error JSON into a readable message.
+## Examples
 
-It has not completed a turn on this machine: every model is rejected with "not supported when using
-Codex with a ChatGPT account", and the CLI cannot refresh its model catalog. That is an account and
-CLI-version problem rather than an adapter defect — `pnpm scenario:codex` shows the adapter handling
-the failure correctly and surfacing the upstream reason. Run `codex update` and retry to verify it
-end to end.
+| Example | Shows | Needs |
+| --- | --- | --- |
+| [`examples/basic`](examples/basic) | Stream a reply into your program | Claude CLI |
+| [`examples/mcp`](examples/mcp) | Give the agent your tools, watch the calls | Claude CLI |
+| [`examples/tools`](examples/tools) | Approval flow, no agent required | nothing |
+| [`examples/runtime-python`](examples/runtime-python) | Drive a session from Python | Claude CLI |
 
-### Gemini — not supported
+## Documentation
 
-Google retired the "Gemini Code Assist for individuals" sign-in the CLI used, and sign-in now
-redirects to Antigravity, which ships a GUI IDE rather than a headless CLI. There is nothing for an
-adapter to drive on an individual account, so the adapter was removed rather than shipped
-unverified.
+The full design — API contracts, the event protocol, error codes, acceptance scenarios — lives in
+the [Product & Functional Specification](docs/AgentBridge-Product-Spec.md). Code comments cite spec
+section numbers, so the two can be checked against each other.
 
-The CLI binary itself still runs with a `GEMINI_API_KEY`, so this is a reachable gap rather than a
-dead end. It comes back when a turn can be completed end to end. `listAgents()` deliberately does
-not report Gemini in the meantime: listing a CLI implies AgentBridge can drive it, and a truthful
-"not supported" beats a detected entry that fails at session creation.
+---
 
-## Persistence and logging
+## Development
 
-The default storage backend is in-memory, which is right for a library embedded in an application:
-the app owns its own lifecycle. A daemon outlives the processes talking to it, so
-`agentbridge serve` uses the file backend instead.
-
-```typescript
-const agent = new AgentBridge({ storage: new FileStorage({ dataDir: "~/.agentbridge" }) });
+```bash
+pnpm install
+pnpm build
+pnpm test          # 285 tests
+pnpm scenario:a    # real-CLI acceptance scenarios (needs claude)
 ```
 
-Sessions, MCP registrations, and permission rules survive a restart. A restored session comes back
-`stopped`, because its agent process is gone — what survives is the metadata and the provider's own
-session id, so `sessions.resume()` picks the conversation up where it left off.
+Node 20+, pnpm 9+. Publishing must go through `pnpm publish` — a guard blocks `npm publish`, which
+would ship a tarball npm itself cannot install (it leaves the `workspace:` protocol in
+dependencies).
 
-```text
-run 1   POST /sessions  ->  bfa73af0-...  (daemon killed)
-run 2   GET  /sessions  ->  bfa73af0-...  status "stopped", title "survives restart"
-```
+Heads-up: deleting `dist/` by hand leaves `tsconfig.tsbuildinfo` behind, and `tsc -b` will then emit
+nothing while tests report zero passing. Use `pnpm clean` or `tsc -b --force`.
 
-Every field logged passes through redaction, so a caller cannot leak a secret by logging an object
-that happens to carry one. Message bodies reduce to a length and a digest; tool arguments to key
-names and a digest.
-
-```json
-{"level":"info","event":"mcp.connected","serverId":"filesystem","transport":"stdio","toolCount":2}
-{"level":"info","event":"session.created","sessionId":"37a70a81-...","provider":"claude"}
-{"level":"info","event":"mcp.reloaded","serverId":"filesystem","added":0,"durationMs":122}
-```
-
-## Secrets
-
-An MCP server or a session can reference a secret instead of carrying it:
-
-```jsonc
-{ "id": "github", "transport": "stdio", "command": "gh-mcp",
-  "env": { "GITHUB_TOKEN": "secret://github/token" } }
-```
-
-The reference is what gets stored and what the API returns; only the child process ever sees the
-real value.
-
-```text
-API response       "GITHUB_TOKEN": "***"
-state on disk      "GITHUB_TOKEN": "secret://github/token"
-process env        the actual token
-```
-
-`agentbridge serve` resolves against the OS credential store first (macOS Keychain, Linux
-`secret-tool`, Windows Credential Manager) and the environment second, which is usually what CI has.
-Hosts can supply their own `SecretResolver`.
-
-An unresolved reference is an error, not a passthrough. Handing the literal `secret://...` to a
-child process looks like a real value and resurfaces later as a confusing authentication failure
-somewhere else entirely, so registration fails with `AB-6004` instead.
-
-## Layout
+### Layout
 
 ```text
 packages/agentbridge/src/
-├── core/              # events, session model, SessionManager, AgentBridge, errors, storage, secrets
-├── provider/          # adapter contract, detection, process plumbing, Claude and Codex adapters
-├── mcp/               # client and transports, tool registry, manager with hot reload, MCP server
-├── permission/        # policy evaluation, approval queue, the prompt hook gateway
-├── runtime/           # local REST and WebSocket server
-└── sdk/               # one client over both transports
-scripts/
-├── list-agents.mjs         # pnpm agents
-├── scenario-a.mjs          # pnpm scenario:a
-├── scenario-b.mjs          # pnpm scenario:b
-├── mcp-check.mjs           # pnpm mcp:check
-├── scenario-e.mjs          # pnpm scenario:e
-├── scenario-codex.mjs      # pnpm scenario:codex
-├── integration-check.mjs   # pnpm integration:check
-├── runtime-serve.mjs       # pnpm serve
-└── python-client-check.py  # drives the runtime from Python
-docs/
-└── AgentBridge-Product-Spec.md
+├── core/          # AgentBridge, sessions, events, errors, storage, secrets
+├── provider/      # adapter contract, CLI detection, Claude + Codex adapters
+├── mcp/           # client + transports, tool registry, hot-reload manager, MCP server
+├── permission/    # policy rules, approval queue, the prompt-hook gateway
+├── runtime/       # local REST + WebSocket server
+└── sdk/           # one client over both transports
+apps/runtime/      # the `agentbridge` daemon (@jeonhui/agentbridge-cli)
 ```
 
-## Design principles
+The directories are the module boundaries: `sdk → core → provider/mcp/permission → storage`, one
+way. Shipping as a single package does not relax this — an import that reverses the arrow is a
+defect.
 
-- **Headless** — no UI. Every state change is emitted as an event.
-- **Provider-agnostic** — the core only knows the `AgentProvider` interface; CLI specifics stay in adapters.
-- **MCP-first** — integrations are added as MCP servers rather than accreting into the core.
-- **Local-first** — works without network access; sessions, config, and logs stay on the machine.
+### Design principles
+
+- **Headless** — no UI; every state change is an event.
+- **Provider-agnostic** — the core knows only the `AgentProvider` interface; CLI details stay in adapters.
+- **MCP-first** — integrations are MCP servers, not core features.
+- **Local-first** — works offline; sessions, config, and logs stay on the machine.
 
 ## License
 

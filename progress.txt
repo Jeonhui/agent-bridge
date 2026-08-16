@@ -635,3 +635,19 @@ its process exit silently instead of receiving the deny-on-timeout.
 
 0.1.2 publishes the fix; both 0.1.1 releases are deprecated pointing at it, since the CLI bundles
 the library and inherited the bug through its dependency.
+
+[2026-08-16] README rewritten for readers, not for the order features were built
+
+The old README had grown by accretion: 442 lines, 19 sections ordered by when each feature landed.
+It opened with jargon and a Status table before ever saying what the thing does; Quickstart and
+"Talking to Claude" duplicated each other; the tsbuildinfo trap sat inside a user-facing section.
+
+The new one (306 lines) follows the reader's journey instead: what it is in plain words with a
+diagram, four concrete things you can build, install, a sixty-second quickstart, then task-shaped
+recipes (give the agent tools / ask before it acts / use from Python / one client two transports /
+reverse direction), an honest provider table, and development details at the bottom where only
+contributors go. Every command and number in it was checked against package.json and the example
+directories before committing.
+
+The npm copy is generated from the same file with repo-relative links absolutized, since npm
+resolves relative links against the package directory and serves 404s.
