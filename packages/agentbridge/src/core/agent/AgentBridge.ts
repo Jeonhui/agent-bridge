@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { AgentBridgeError } from "../errors/AgentBridgeError.js";
 import { EventBus } from "../events/EventBus.js";
 import { Logger } from "../logging/Logger.js";
@@ -157,7 +159,10 @@ export class AgentBridge {
       defaultPermissionMode: this.#config.defaultPermissionMode,
       resolveMcp: (serverIds) => this.#mcp?.resolveForSession(serverIds) ?? [],
       tools: {
-        list: (sessionId) => (this.#mcp ? this.tools.list({ sessionId }) : []),
+        // tools.list itself handles the no-MCP case (agent tools still exist); only when there
+        // is truly nothing to offer does the executor see an empty list.
+        list: (sessionId) =>
+          this.#mcp || this.#agentDirectory.size > 0 ? this.tools.list({ sessionId }) : [],
         call: (sessionId, toolId, args) => this.tools.call(toolId, args, { sessionId }),
       },
       permissionPrompt: (sessionId) =>
@@ -334,6 +339,9 @@ export class AgentBridge {
      */
     call: async (toolId: string, args: unknown, options: ToolCallOptions = {}): Promise<ToolCallResult> => {
       const started = Date.now();
+      // The whole call resolves rather than throwing (the documented contract): an unknown
+      // tool id or a stale session id become ok:false like any other failure.
+      try {
       const definition = this.#agentToolTarget(toolId);
       const tool = definition ? agentToolDescriptor(definition) : this.#requireMcp().getTool(toolId);
 
@@ -342,7 +350,7 @@ export class AgentBridge {
         const decision = await this.#permissions.authorize({
           toolId,
           tool: tool.name,
-          callId: `call_${Date.now()}`,
+          callId: `call_${randomUUID()}`,
           sessionId: options.sessionId ?? "",
           provider: session?.provider ?? "",
           // A direct host call has no session, so nothing session-scoped can be remembered.
@@ -361,11 +369,10 @@ export class AgentBridge {
         }
       }
 
-      try {
-        const content = definition
-          ? await this.#callAgent(definition, args, options.sessionId)
-          : await this.#requireMcp().callTool(toolId, args, options.timeoutMs);
-        return { toolId, ok: true, content, durationMs: Date.now() - started };
+      const content = definition
+        ? await this.#callAgent(definition, args, options.sessionId)
+        : await this.#requireMcp().callTool(toolId, args, options.timeoutMs);
+      return { toolId, ok: true, content, durationMs: Date.now() - started };
       } catch (error) {
         const info =
           error instanceof AgentBridgeError
@@ -490,16 +497,19 @@ export class AgentBridge {
     const oneshot = (definition.memory ?? "oneshot") === "oneshot";
     const sessionId = await this.#agentSessionFor(definition, depth);
 
-    // The reply is whatever the assistant says over the turn; deltas accumulate, a full
-    // message replaces. Subscribing before send() means nothing can slip past.
+    // The reply is whatever the assistant says over OUR turn; deltas accumulate, a full message
+    // replaces. The turn id is minted here and passed down, because a persistent definition's
+    // session is shared - without the filter, a caller queued behind another caller's turn
+    // would accumulate that turn's output into its own reply.
+    const turnId = randomUUID();
     let reply = "";
     const unsubscribe = this.#events.onSession(sessionId, "message", (event) => {
-      if (event.role !== "assistant") return;
+      if (event.role !== "assistant" || event.turnId !== turnId) return;
       reply = event.delta ? reply + event.content : event.content;
     });
 
     try {
-      await this.#sessionManager.send(sessionId, message);
+      await this.#sessionManager.send(sessionId, message, { turnId });
       return { agent: definition.id, sessionId, reply };
     } finally {
       unsubscribe();

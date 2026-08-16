@@ -106,6 +106,10 @@ interface SessionRecord {
   seq: SequenceCounter;
   queueing: boolean;
   turn: { id: string; controller: AbortController; done: Promise<void> } | undefined;
+  /** Set the moment stop() begins, so queued senders reject instead of starting a new turn. */
+  closing?: boolean;
+  /** Concurrent stop() calls dedupe onto the first one's promise. */
+  stopping?: Promise<void>;
 }
 
 export interface SendResult {
@@ -176,7 +180,7 @@ export class SessionManager {
         ...(persisted.workingDirectory ? { workingDirectory: persisted.workingDirectory } : {}),
         ...(persisted.model ? { model: persisted.model } : {}),
         ...(persisted.env ? { env: persisted.env } : {}),
-        ...(persisted.usage ? { usage: persisted.usage } : {}),
+        ...(persisted.usage ? { usage: { ...persisted.usage } } : {}),
         ...(persisted.nativeSessionId ? { nativeSessionId: persisted.nativeSessionId } : {}),
       };
 
@@ -282,7 +286,7 @@ export class SessionManager {
   }
 
   get(sessionId: string): AgentSession {
-    return { ...this.#require(sessionId).info };
+    return snapshot(this.#require(sessionId).info);
   }
 
   list(filter: { provider?: string; status?: SessionStatus | SessionStatus[] } = {}): AgentSession[] {
@@ -293,14 +297,18 @@ export class SessionManager {
     return [...this.#sessions.values()]
       .filter((r) => (filter.provider ? r.info.provider === filter.provider : true))
       .filter((r) => (statuses ? statuses.has(r.info.status) : true))
-      .map((r) => ({ ...r.info }));
+      .map((r) => snapshot(r.info));
   }
 
   /**
    * Sends a message and resolves when the turn completes.
    * A send during a running turn waits for it unless queueing is disabled (spec 13.2).
    */
-  async send(sessionId: string, message: string, options: SendMessageOptions = {}): Promise<SendResult> {
+  async send(
+    sessionId: string,
+    message: string,
+    options: SendMessageOptions & { turnId?: string } = {},
+  ): Promise<SendResult> {
     const record = this.#require(sessionId);
 
     if (record.info.status === "stopped" || record.info.status === "error") {
@@ -315,9 +323,17 @@ export class SessionManager {
     // would release them all at once and they would run concurrently.
     while (record.turn) {
       await record.turn.done.catch(() => undefined);
+      // The session may have been stopped while we waited; starting a turn now would run
+      // against a torn-down provider (or spawn an orphan CLI process after stop() returned).
+      // The cast defeats stale narrowing: the guard above ran before this await, and stop()
+      // mutates the status concurrently.
+      const status = record.info.status as SessionStatus;
+      if (record.closing || status === "stopped" || status === "error") {
+        throw new AgentBridgeError("AB-3002", { details: { sessionId, status } });
+      }
     }
 
-    const turnId = randomUUID();
+    const turnId = options.turnId ?? randomUUID();
     const controller = new AbortController();
     const done = this.#runTurn(record, turnId, message, controller, options);
     record.turn = { id: turnId, controller, done };
@@ -368,6 +384,9 @@ export class SessionManager {
    */
   async setModel(sessionId: string, model: string): Promise<AgentSession> {
     const record = this.#require(sessionId);
+    if (record.info.status === "stopped" || record.info.status === "error") {
+      throw new AgentBridgeError("AB-3002", { details: { sessionId, status: record.info.status } });
+    }
     if (!model || typeof model !== "string") {
       throw new AgentBridgeError("AB-3001", { message: "a model name is required" });
     }
@@ -441,19 +460,34 @@ export class SessionManager {
   async stop(sessionId: string): Promise<void> {
     const record = this.#require(sessionId);
 
-    // Stopping twice is not an error, but it must not re-enter the provider or log again.
+    // Stopping twice is not an error, but it must not re-enter the provider or log again;
+    // concurrent stop() calls (a host racing stopAll()) dedupe onto the first one's promise.
     if (record.info.status === "stopped") return;
+    if (record.stopping) return record.stopping;
 
-    record.turn?.controller.abort();
-    await record.turn?.done.catch(() => undefined);
-    await this.#providers.get(record.info.provider).stop(record.handle);
-    this.#transition(record, "stop");
+    record.closing = true;   // queued senders check this after their wait and reject
+    record.stopping = (async () => {
+      try {
+        // Drain until nothing is in flight: aborting the current turn releases queued senders,
+        // which now reject on the closing flag instead of claiming a new turn.
+        while (record.turn) {
+          record.turn.controller.abort();
+          await record.turn.done.catch(() => undefined);
+        }
+        await this.#providers.get(record.info.provider).stop(record.handle);
+        this.#transition(record, "stop");
 
-    this.#logger?.info("session.stopped", {
-      sessionId,
-      durationMs: Date.now() - record.info.createdAt.getTime(),
-    });
-    await this.#persist(record);
+        this.#logger?.info("session.stopped", {
+          sessionId,
+          durationMs: Date.now() - record.info.createdAt.getTime(),
+        });
+        await this.#persist(record);
+      } finally {
+        record.closing = false;
+        delete record.stopping;
+      }
+    })();
+    return record.stopping;
   }
 
   async stopAll(): Promise<void> {
@@ -559,7 +593,7 @@ export class SessionManager {
         ...(info.workingDirectory ? { workingDirectory: info.workingDirectory } : {}),
         ...(info.model ? { model: info.model } : {}),
         ...(info.env ? { env: info.env } : {}),
-        ...(info.usage ? { usage: info.usage } : {}),
+        ...(info.usage ? { usage: { ...info.usage } } : {}),
         ...(record.handle.nativeSessionId
           ? { nativeSessionId: record.handle.nativeSessionId }
           : {}),
@@ -577,4 +611,9 @@ export class SessionManager {
     if (!record) throw new AgentBridgeError("AB-3004", { details: { sessionId } });
     return record;
   }
+}
+
+/** A copy safe to hand out: `usage` mutates on every turn, so it must not be aliased. */
+function snapshot(info: AgentSession): AgentSession {
+  return { ...info, ...(info.usage ? { usage: { ...info.usage } } : {}) };
 }

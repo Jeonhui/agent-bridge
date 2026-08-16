@@ -167,7 +167,7 @@ describe("OpenAICompatProvider (spec 12.5)", () => {
     }
   });
 
-  it("leaves history untouched when the turn is aborted mid-flight", async () => {
+  it("an interrupt resolves cleanly and leaves history untouched", async () => {
     const server = createServer(() => {
       /* never responds; the abort is the only way out */
     });
@@ -180,9 +180,12 @@ describe("OpenAICompatProvider (spec 12.5)", () => {
       const controller = new AbortController();
       setTimeout(() => controller.abort(), 50).unref();
 
-      const { emit } = collector();
-      await assert.rejects(provider.send(handle, "hang", { emit, signal: controller.signal }));
-      // The working-copy rule: a failed turn must not leave a dangling user message to replay.
+      const { events, emit } = collector();
+      // A user interrupt is not an upstream failure: send() must RESOLVE so the session goes
+      // back to ready instead of being bricked in the error state.
+      await provider.send(handle, "hang", { emit, signal: controller.signal });
+      assert.deepEqual(events, [], "no message may be fabricated for an aborted turn");
+      // The working-copy rule: nothing executed, so nothing is committed.
       assert.deepEqual(provider.historyOf("s1"), []);
     } finally {
       await new Promise((r) => server.close(() => r(null)));
@@ -411,6 +414,153 @@ describe("GeminiApiProvider (spec 12.5)", () => {
       assert.match(detection.reason ?? "", /GEMINI_API_KEY/);
     } finally {
       if (saved !== undefined) process.env["GEMINI_API_KEY"] = saved;
+    }
+  });
+});
+
+describe("interrupt and failure semantics (spec 12.5)", () => {
+  it("a turn interrupted after a tool ran keeps the tool's record in history", async () => {
+    // Round 1 requests a tool with real side effects; round 2 hangs and gets interrupted.
+    // The history must remember what actually happened, or the next turn replays a blank
+    // conversation and the model plans the side effects again.
+    let hang: ((value: never) => void) | undefined;
+    const endpoint = await fakeEndpoint([
+      () => ({ choices: [{ message: { tool_calls: [
+        { id: "c1", function: { name: "mcp_fs_delete_all", arguments: "{}" } },
+      ] } }] }),
+    ]);
+    try {
+      const executed: string[] = [];
+      const provider = new OpenAICompatProvider({ baseUrl: endpoint.url, streaming: false });
+      const handle = await provider.start({
+        sessionId: "s1",
+        toolExecutor: stubExecutor(
+          [{ id: "mcp:fs:delete_all", name: "delete_all", description: "d", inputSchema: { type: "object" }, permissions: ["write"] }],
+          async (toolId) => {
+            executed.push(toolId);
+            return { ok: true, content: "deleted 4000 files" };
+          },
+        ),
+      });
+      const controller = new AbortController();
+      // Round 2 has no scripted responder; the fake returns 500, which retries — abort instead.
+      setTimeout(() => controller.abort(), 100).unref();
+      await provider.send(handle, "delete the temp files", { emit: collector().emit, signal: controller.signal });
+
+      assert.deepEqual(executed, ["mcp:fs:delete_all"]);
+      const roles = provider.historyOf("s1").map((m) => m.role);
+      assert.deepEqual(roles, ["user", "assistant", "tool"], "the executed round must be committed");
+      void hang;
+    } finally {
+      await endpoint.close();
+    }
+  });
+
+  it("session.interrupt() returns the session to ready, not error (the full stack)", async () => {
+    const server = createServer(() => { /* hangs forever */ });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    try {
+      const agent = new AgentBridge();
+      agent.registerProvider(new OpenAICompatProvider({ baseUrl: `http://127.0.0.1:${port}` }) as never);
+      await agent.start();
+      const session = await agent.sessions.create({ provider: "openai-compat" });
+
+      const fatalErrors: unknown[] = [];
+      agent.on("error", (event: any) => { if (event.fatal) fatalErrors.push(event); });
+
+      const turn = session.send("hang forever");
+      await new Promise((r) => setTimeout(r, 100));
+      await session.interrupt();
+      await turn;   // a user interrupt must RESOLVE the send, not reject it
+
+      assert.equal(session.info.status, "ready", "the session must be usable again");
+      assert.deepEqual(fatalErrors, [], "an interrupt is not a fatal error");
+      // And it really is usable: a stopped session would throw AB-3002 here.
+      await agent.stop();
+    } finally {
+      await new Promise((r) => server.close(() => r(null)));
+    }
+  });
+
+  it("openai dialect: a mid-stream error frame fails the turn instead of committing a fragment", async () => {
+    const endpoint = await fakeSseEndpoint([
+      () => [
+        { model: "m", choices: [{ delta: { content: "Partial answ" } }] },
+        { error: { message: "upstream provider overloaded", code: 502 } },
+      ],
+    ]);
+    try {
+      const provider = new OpenAICompatProvider({ baseUrl: endpoint.url });
+      const handle = await provider.start({ sessionId: "s1" });
+      const { events, emit } = collector();
+      await assert.rejects(
+        provider.send(handle, "hi", { emit }),
+        (error: any) => error.code === "AB-1006" && /overloaded/.test(error.message),
+      );
+      assert.ok(!events.some((e) => e.type === "message" && (e as any).done), "no done message for a failed turn");
+      assert.deepEqual(provider.historyOf("s1"), [], "a failed turn must not commit");
+    } finally {
+      await endpoint.close();
+    }
+  });
+
+  it("anthropic: a mid-stream error event fails the turn", async () => {
+    const endpoint = await fakeSseEndpoint([
+      () => [
+        { type: "message_start", message: { model: "m", usage: { input_tokens: 5 } } },
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Partial" } },
+        { type: "error", error: { type: "overloaded_error", message: "Overloaded" } },
+      ],
+    ]);
+    try {
+      const provider = new AnthropicProvider({ apiKey: "k", baseUrl: endpoint.url });
+      const handle = await provider.start({ sessionId: "a1" });
+      await assert.rejects(
+        provider.send(handle, "hi", { emit: collector().emit }),
+        (error: any) => error.code === "AB-1006" && /Overloaded/.test(error.message),
+      );
+      assert.deepEqual(provider.historyOf("a1"), []);
+    } finally {
+      await endpoint.close();
+    }
+  });
+});
+
+describe("Gemini wire-name collisions (spec 12.5)", () => {
+  it("keeps colliding long tool ids apart and executes the one the model asked for", async () => {
+    const longA = "mcp:atlassian-confluence:content_space_permission_grant_read";
+    const longB = "mcp:atlassian-confluence:content_space_permission_grant_read_write_admin";
+    const endpoint = await fakeEndpoint([
+      (body) => {
+        const names = body.tools[0].functionDeclarations.map((d: any) => d.name);
+        assert.equal(new Set(names).size, 2, "declarations must not collide");
+        // The model calls the FIRST (read-only) declaration.
+        return { candidates: [{ content: { parts: [{ functionCall: { name: names[0], args: {} } }] } }] };
+      },
+      () => ({ candidates: [{ content: { parts: [{ text: "done" }] } }] }),
+    ]);
+    try {
+      const executed: string[] = [];
+      const provider = new GeminiApiProvider({ apiKey: "k", baseUrl: endpoint.url });
+      const handle = await provider.start({
+        sessionId: "g1",
+        toolExecutor: stubExecutor(
+          [longA, longB].map((id) => ({
+            id, name: id.split(":").pop()!, description: "x",
+            inputSchema: { type: "object" }, permissions: ["write"],
+          })),
+          async (toolId) => {
+            executed.push(toolId);
+            return { ok: true, content: "ok" };
+          },
+        ),
+      });
+      await provider.send(handle, "grant read", { emit: collector().emit });
+      assert.deepEqual(executed, [longA], "the read-only tool the model asked for, not the destructive one");
+    } finally {
+      await endpoint.close();
     }
   });
 });
@@ -703,7 +853,10 @@ describe("API provider resume via FileHistoryStore (spec 12.5)", () => {
     await writeFile(join(dir, "s1.json"), "{ not json", "utf8");
 
     assert.equal(await store.load("s1"), undefined);
-    const quarantined = await readFile(join(dir, "s1.json.corrupt"), "utf8");
+    const { readdir } = await import("node:fs/promises");
+    const quarantinedName = (await readdir(dir)).find((f) => f.includes(".corrupt"));
+    assert.ok(quarantinedName, "the corrupt file must be quarantined, not deleted");
+    const quarantined = await readFile(join(dir, quarantinedName!), "utf8");
     assert.equal(quarantined, "{ not json", "the bytes must survive for diagnosis");
   });
 });

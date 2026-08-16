@@ -53,12 +53,15 @@ class FileRepository<T extends Identified> implements Repository<T> {
   }
 
   async #mutate(change: (items: Map<string, T>) => void): Promise<void> {
-    this.#queue = this.#queue.then(async () => {
+    const operation = this.#queue.then(async () => {
       const items = await this.#load();
       change(items);
       await writeAtomic(this.path, JSON.stringify([...items.values()], null, 2));
     });
-    await this.#queue;
+    // The caller sees the rejection; the chain itself swallows it, or one failed write would
+    // poison every write after it forever.
+    this.#queue = operation.catch(() => undefined);
+    await operation;
   }
 
   async #load(): Promise<Map<string, T>> {

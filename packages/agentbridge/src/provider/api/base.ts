@@ -211,36 +211,75 @@ export abstract class ApiProviderBase implements AgentProvider {
       } as ApiMessage,
     ];
 
-    const controller = new AbortController();
-    const onAbort = () => controller.abort();
-    signal?.addEventListener("abort", onAbort, { once: true });
-    const deadline = setTimeout(() => controller.abort(), this.#requestTimeoutMs * (this.#maxToolRounds + 1));
-    deadline.unref?.();
+    // The per-round deadline resets on every streamed delta, so it is an IDLE timeout: an
+    // actively streaming answer lives as long as it keeps talking, while a hung connection is
+    // cut after requestTimeoutMs of silence.
+    let roundController = new AbortController();
+    let roundDeadline: ReturnType<typeof setTimeout> | undefined;
+    const armDeadline = (): void => {
+      if (roundDeadline) clearTimeout(roundDeadline);
+      roundDeadline = setTimeout(() => roundController.abort(), this.#requestTimeoutMs);
+      roundDeadline.unref?.();   // a live fetch holds the loop; this timer never settles alone
+    };
+    const onAbort = () => roundController.abort();
+    signal?.addEventListener("abort", onAbort);
 
     // Deltas stream as they arrive; the final full message still closes the turn, so a consumer
     // that only understands whole messages stays correct (delta events append, a full one replaces).
     const onDelta = (chunk: string): void => {
+      armDeadline();
       if (chunk === "" || signal?.aborted) return;
       emit({ type: "message", role: "assistant", content: chunk, delta: true, done: false });
     };
-    const usageTotal = { inputTokens: 0, outputTokens: 0, sawAny: false, model: undefined as string | undefined };
+    const usageTotal = {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      sawAny: false,
+      model: undefined as string | undefined,
+    };
     const takeUsage = (usage: ApiUsage | undefined): void => {
       if (!usage) return;
       usageTotal.sawAny = true;
       usageTotal.inputTokens += usage.inputTokens ?? 0;
       usageTotal.outputTokens += usage.outputTokens ?? 0;
+      // Provider-reported totals win: they include cache and thinking tokens that in+out misses.
+      usageTotal.totalTokens += usage.totalTokens ?? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0);
       if (usage.model) usageTotal.model = usage.model;
+    };
+
+    // Committing after every completed tool round keeps the record truthful: tool side effects
+    // that already happened must survive a later failure or interrupt, or the next turn would
+    // replay a history with no memory of them (and happily plan them again).
+    const commit = async (): Promise<void> => {
+      session.history = [...working];
+      if (this.#store) {
+        // A persistence failure must not kill a live session (spec 28.3).
+        await this.#store.save(handle.sessionId, session.history).catch(() => undefined);
+      }
     };
 
     try {
       for (let round = 0; ; round += 1) {
-        const result = await this.complete({
-          model,
-          messages: working,
-          tools,
-          signal: controller.signal,
-          ...(this.capabilities.streaming ? { onDelta } : {}),
-        });
+        roundController = new AbortController();
+        if (signal?.aborted) roundController.abort();
+        armDeadline();
+
+        let result: ApiTurnResult;
+        try {
+          result = await this.complete({
+            model,
+            messages: working,
+            tools,
+            signal: roundController.signal,
+            ...(this.capabilities.streaming ? { onDelta } : {}),
+          });
+        } catch (error) {
+          // A user interrupt is not an upstream failure: return cleanly so the session goes
+          // back to ready instead of error. Anything else propagates.
+          if (signal?.aborted) return;
+          throw error;
+        }
 
         if (signal?.aborted) return;
         takeUsage(result.usage);
@@ -256,7 +295,7 @@ export abstract class ApiProviderBase implements AgentProvider {
               ...(reportedModel ? { model: reportedModel } : {}),
               inputTokens: usageTotal.inputTokens,
               outputTokens: usageTotal.outputTokens,
-              totalTokens: usageTotal.inputTokens + usageTotal.outputTokens,
+              totalTokens: usageTotal.totalTokens,
             });
           }
           working.push({ role: "assistant", content: text });
@@ -316,16 +355,14 @@ export abstract class ApiProviderBase implements AgentProvider {
             content: JSON.stringify(outcome.ok ? (outcome.content ?? null) : { error: outcome.error }),
           });
         }
+
+        // Side effects landed; make the record durable before the next round can fail.
+        await commit();
       }
 
-      session.history = working;
-      if (this.#store) {
-        // A persistence failure must not kill a live session (spec 28.3); the turn already
-        // succeeded, only its durability is degraded.
-        await this.#store.save(handle.sessionId, working).catch(() => undefined);
-      }
+      await commit();
     } finally {
-      clearTimeout(deadline);
+      if (roundDeadline) clearTimeout(roundDeadline);
       signal?.removeEventListener("abort", onAbort);
     }
   }
@@ -405,7 +442,9 @@ async function fetchWithRetry(
       response = await fetch(url, init);
     } catch (error) {
       if (init.signal?.aborted) {
-        throw new AgentBridgeError("AB-1006", {
+        // A deliberate abort (user interrupt, idle deadline) is not an upstream failure;
+        // AB-3005 lets callers distinguish it from AB-1006 and unwind cleanly.
+        throw new AgentBridgeError("AB-3005", {
           message: `${providerId} request aborted`,
           details: { providerId, url },
           cause: error,
@@ -425,6 +464,9 @@ async function fetchWithRetry(
       });
     }
 
+    // This response is being retried past, so its body is never read; cancel it or the
+    // socket stays pinned to the connection pool.
+    await response?.body?.cancel().catch(() => undefined);
     await sleep(retryDelayMs(attempt, response, policy), init.signal);
   }
 }
@@ -530,27 +572,40 @@ export async function apiFetchSse(
 
   const decoder = new TextDecoder();
   let buffer = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+  const consumeLine = (line: string): void => {
+    if (!line.startsWith("data:")) return;
+    const data = line.slice(5).trim();
+    if (data === "" || data === "[DONE]") return;
+    try {
+      onData(JSON.parse(data));
+    } catch (error) {
+      if (error instanceof AgentBridgeError) throw error;   // a collector rejecting an error frame
+      throw new AgentBridgeError("AB-1004", {
+        message: `${providerId} sent a malformed stream chunk`,
+        details: { providerId, chunk: data.slice(0, 200) },
+      });
+    }
+  };
 
-    let newline: number;
-    while ((newline = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      if (!line.startsWith("data:")) continue;
-      const data = line.slice(5).trim();
-      if (data === "" || data === "[DONE]") continue;
-      try {
-        onData(JSON.parse(data));
-      } catch {
-        throw new AgentBridgeError("AB-1004", {
-          message: `${providerId} sent a malformed stream chunk`,
-          details: { providerId, chunk: data.slice(0, 200) },
-        });
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let newline: number;
+      while ((newline = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        consumeLine(line);
       }
     }
+    // A connection can drop mid-frame: flush the decoder and drain the unterminated last line.
+    buffer += decoder.decode();
+    const residual = buffer.trim();
+    if (residual) consumeLine(residual);
+  } finally {
+    await reader.cancel().catch(() => undefined);
   }
   return undefined;
 }

@@ -153,6 +153,61 @@ describe("SessionManager (spec 10.3 / 13.2)", () => {
     assert.equal(maxInTurn, 1, "turns on one session must never overlap");
   });
 
+  it("stop() drains queued senders: they reject instead of starting a turn on a dead session", async () => {
+    let liveTurns = 0;
+    const sends: string[] = [];
+    const provider = fakeProvider({
+      onSend: async (message) => {
+        liveTurns += 1;
+        sends.push(message);
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        liveTurns -= 1;
+      },
+    });
+    const { manager } = harness(provider);
+    const session = await manager.create({ provider: "fake" });
+
+    const first = manager.send(session.id, "in-flight");
+    const queued = manager.send(session.id, "queued").catch((error) => error);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await manager.stop(session.id);
+    assert.equal(liveTurns, 0, "stop() must not resolve while a turn is live");
+    assert.deepEqual(provider.stopped, [session.id]);
+
+    const queuedOutcome = await queued;
+    assert.equal((queuedOutcome as AgentBridgeError).code, "AB-3002", "the queued sender must reject");
+    assert.deepEqual(sends, ["in-flight"], "no provider.send may run for the queued message");
+    await first.catch(() => undefined);
+  });
+
+  it("concurrent stop() calls dedupe onto one teardown", async () => {
+    const provider = fakeProvider();
+    const { manager } = harness(provider);
+    const session = await manager.create({ provider: "fake" });
+
+    await Promise.all([manager.stop(session.id), manager.stop(session.id), manager.stop(session.id)]);
+    assert.deepEqual(provider.stopped, [session.id], "provider.stop must run exactly once");
+  });
+
+  it("hands out usage snapshots, not the live accumulator", async () => {
+    const provider = fakeProvider({
+      onSend: async (_message, emit) => {
+        emit({ type: "usage", inputTokens: 10, outputTokens: 5 });
+        emit({ type: "message", role: "assistant", content: "ok", delta: false, done: true });
+      },
+    });
+    const { manager } = harness(provider);
+    const session = await manager.create({ provider: "fake" });
+
+    await manager.send(session.id, "one");
+    const before = manager.get(session.id).usage;
+    await manager.send(session.id, "two");
+
+    assert.deepEqual(before, { inputTokens: 10, outputTokens: 5, turns: 1 }, "the snapshot must not mutate");
+    assert.deepEqual(manager.get(session.id).usage, { inputTokens: 20, outputTokens: 10, turns: 2 });
+  });
+
   it("rejects a concurrent send with AB-3003 when queueing is off", async () => {
     const provider = fakeProvider({
       onSend: async () => {

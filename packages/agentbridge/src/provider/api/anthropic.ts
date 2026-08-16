@@ -1,3 +1,4 @@
+import { AgentBridgeError } from "../../core/errors/AgentBridgeError.js";
 import type { ProviderDetection, SessionToolExecutor } from "../core/AgentProvider.js";
 import {
   ApiProviderBase,
@@ -212,6 +213,7 @@ class MessageCollector {
   #inputTokens = 0;
   #outputTokens = 0;
   #sawUsage = false;
+  #stopReason: string | undefined;
   readonly #blocks = new Map<number, { id?: string; name: string; json: string }>();
 
   constructor(onDelta: (chunk: string) => void) {
@@ -223,10 +225,18 @@ class MessageCollector {
     index?: number;
     message?: { model?: string; usage?: { input_tokens?: number; output_tokens?: number } };
     content_block?: WireBlock;
-    delta?: { type?: string; text?: string; partial_json?: string };
+    delta?: { type?: string; text?: string; partial_json?: string; stop_reason?: string };
     usage?: { output_tokens?: number };
+    error?: { type?: string; message?: string };
   }): void {
     switch (event.type) {
+      case "error": {
+        // The Messages API reports mid-stream failures as an error event; the turn failed.
+        throw new AgentBridgeError("AB-1006", {
+          message: `upstream error mid-stream: ${event.error?.message ?? event.error?.type ?? "unknown"}`,
+          details: { type: event.error?.type ?? null },
+        });
+      }
       case "message_start": {
         if (event.message?.model) this.#model = event.message.model;
         if (event.message?.usage?.input_tokens !== undefined) {
@@ -253,6 +263,7 @@ class MessageCollector {
         return;
       }
       case "message_delta": {
+        if (event.delta?.stop_reason) this.#stopReason = event.delta.stop_reason;
         if (event.usage?.output_tokens !== undefined) {
           this.#outputTokens = event.usage.output_tokens;
           this.#sawUsage = true;
@@ -274,6 +285,13 @@ class MessageCollector {
           try {
             args = JSON.parse(block.json);
           } catch {
+            // Arguments cut off by max_tokens are not a tool call; refuse rather than execute garbage.
+            if (this.#stopReason === "max_tokens") {
+              throw new AgentBridgeError("AB-1006", {
+                message: "the response was truncated by max_tokens mid tool call",
+                details: { stopReason: this.#stopReason },
+              });
+            }
             args = { _raw: block.json };
           }
         }

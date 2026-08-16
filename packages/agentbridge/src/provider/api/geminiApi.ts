@@ -1,5 +1,14 @@
+import { randomUUID } from "node:crypto";
+
 import type { ProviderDetection, SessionToolExecutor } from "../core/AgentProvider.js";
-import { ApiProviderBase, apiFetch, type ApiMessage, type ApiTurnResult } from "./base.js";
+import {
+  ApiProviderBase,
+  apiFetch,
+  uniqueWireName,
+  wireNameFor,
+  type ApiMessage,
+  type ApiTurnResult,
+} from "./base.js";
 
 
 export interface GeminiApiOptions {
@@ -55,26 +64,26 @@ export class GeminiApiProvider extends ApiProviderBase {
     tools: ReturnType<SessionToolExecutor["list"]>;
     signal: AbortSignal;
   }): Promise<ApiTurnResult> {
+    // Collision-safe like the other adapters: sanitized-and-truncated ids can collide, and a
+    // last-write-wins map would execute a DIFFERENT tool than the model asked for.
     const wireNames = new Map<string, string>();
-    const declarations = request.tools.map((tool) => {
-      const wire = geminiWireName(tool.id);
-      wireNames.set(wire, tool.id);
-      return {
-        name: wire,
-        description: tool.description,
-        parameters: sanitizeSchema(tool.inputSchema),
-      };
-    });
+    const declarations = request.tools.map((tool) => ({
+      name: uniqueWireName(tool.id, wireNames, GEMINI_NAME_CHARS),
+      description: tool.description,
+      parameters: sanitizeSchema(tool.inputSchema),
+    }));
 
     const systemParts = request.messages
       .filter((m) => m.role === "system")
       .map((m) => ({ text: m.content }));
 
-    const contents = request.messages
-      .filter((m) => m.role !== "system")
-      .map((m) => toContent(m, wireNames))
-      // An assistant turn that ended with empty text maps to zero parts, which the API rejects.
-      .filter((c) => (c["parts"] as unknown[]).length > 0);
+    const contents = mergeConsecutiveRoles(
+      request.messages
+        .filter((m) => m.role !== "system")
+        .map((m) => toContent(m, wireNames))
+        // An assistant turn that ended with empty text maps to zero parts, which the API rejects.
+        .filter((c) => (c["parts"] as unknown[]).length > 0),
+    );
 
     const model = request.model ?? this.defaultModel ?? "gemini-2.0-flash";
     const json = (await apiFetch(
@@ -103,11 +112,12 @@ export class GeminiApiProvider extends ApiProviderBase {
     const text = parts.map((p) => p.text ?? "").join("");
     const calls = parts
       .filter((p) => p.functionCall)
-      .map((p, index) => {
+      .map((p) => {
         const wire = p.functionCall?.name ?? "";
         const toolId = wireNames.get(wire) ?? wire;
         return {
-          id: `call_${index}`,
+          // Unique across rounds: hosts correlate tool_result events to tool_call events by id.
+          id: `call_${randomUUID()}`,
           toolId,
           name: toolId.split(":").pop() ?? toolId,
           arguments: p.functionCall?.args ?? {},
@@ -139,9 +149,9 @@ function toContent(message: ApiMessage, wireNames: Map<string, string>): Record<
     const parts: unknown[] = [];
     if (message.content) parts.push({ text: message.content });
     for (const call of message.toolCalls ?? []) {
-      let wire = geminiWireName(call.toolId);
-      for (const [w, id] of wireNames) if (id === call.toolId) wire = w;
-      parts.push({ functionCall: { name: wire, args: call.arguments ?? {} } });
+      parts.push({
+        functionCall: { name: wireNameFor(call.toolId, wireNames, GEMINI_NAME_CHARS), args: call.arguments ?? {} },
+      });
     }
     return { role: "model", parts };
   }
@@ -154,7 +164,7 @@ function toContent(message: ApiMessage, wireNames: Map<string, string>): Record<
       role: "user",
       parts: [{
         functionResponse: {
-          name: message.toolId ? geminiWireName(message.toolId) : "tool",
+          name: message.toolId ? wireNameFor(message.toolId, wireNames, GEMINI_NAME_CHARS) : "tool",
           response: { result: payload },
         },
       }],
@@ -167,15 +177,33 @@ function toContent(message: ApiMessage, wireNames: Map<string, string>): Record<
   return { role: "user", parts };
 }
 
-/** The declaration sanitizer; functionResponse parts must reproduce it exactly. */
-function geminiWireName(toolId: string): string {
-  return toolId.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 60);
+/** Gemini allows dots in function names, unlike the OpenAI dialect. */
+const GEMINI_NAME_CHARS = /[^A-Za-z0-9_.-]/g;
+
+/**
+ * Gemini's contract is alternating roles: a multi-tool round produces several consecutive
+ * user-side functionResponse contents, which must collapse into one content whose part count
+ * matches the model turn's functionCall count.
+ */
+function mergeConsecutiveRoles(
+  contents: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const merged: Array<Record<string, unknown>> = [];
+  for (const content of contents) {
+    const last = merged.at(-1);
+    if (last && last["role"] === content["role"]) {
+      (last["parts"] as unknown[]).push(...(content["parts"] as unknown[]));
+    } else {
+      merged.push(content);
+    }
+  }
+  return merged;
 }
 
 /** Gemini rejects JSON Schema fields it does not know; keep the subset it documents. */
 function sanitizeSchema(schema: unknown): unknown {
   if (typeof schema !== "object" || schema === null) return { type: "object" };
-  const allowed = ["type", "description", "properties", "required", "items", "enum", "format", "nullable"];
+  const allowed = ["type", "description", "properties", "required", "items", "enum", "format", "nullable", "anyOf", "oneOf"];
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
     if (!allowed.includes(key)) continue;
@@ -185,6 +213,10 @@ function sanitizeSchema(schema: unknown): unknown {
       );
     } else if (key === "items") {
       out[key] = sanitizeSchema(value);
+    } else if ((key === "anyOf" || key === "oneOf") && Array.isArray(value)) {
+      // Gemini understands anyOf; rewriting a union as {type:"object"} misdescribes it and the
+      // model then sends objects the tool rejects until the round limit trips.
+      out["anyOf"] = value.map((v) => sanitizeSchema(v));
     } else {
       out[key] = value;
     }

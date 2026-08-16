@@ -152,7 +152,9 @@ interface WireCompletion {
 interface WireChunk {
   model?: string;
   usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
+  error?: { message?: string; code?: string | number } | null;
   choices?: Array<{
+    finish_reason?: string | null;
     delta?: {
       content?: string | null;
       tool_calls?: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }>;
@@ -195,6 +197,7 @@ class StreamCollector {
   readonly #onDelta: (chunk: string) => void;
   #text = "";
   #model: string | undefined;
+  #finishReason: string | undefined;
   #usage: ApiUsage | undefined;
   readonly #calls = new Map<number, { id?: string; name: string; arguments: string }>();
 
@@ -203,6 +206,15 @@ class StreamCollector {
   }
 
   take(chunk: WireChunk): void {
+    // An error frame mid-stream means the turn FAILED; swallowing it would deliver the
+    // truncated fragment as a confident, successful answer.
+    if (chunk.error) {
+      throw new AgentBridgeError("AB-1006", {
+        message: `upstream error mid-stream: ${chunk.error.message ?? JSON.stringify(chunk.error)}`,
+        details: { code: chunk.error.code ?? null },
+      });
+    }
+    if (chunk.choices?.[0]?.finish_reason) this.#finishReason = chunk.choices[0].finish_reason;
     if (chunk.model) this.#model = chunk.model;
     const usage = wireUsage(chunk);
     if (usage) this.#usage = usage;
@@ -227,12 +239,20 @@ class StreamCollector {
     const calls = [...this.#calls.entries()]
       .sort(([a], [b]) => a - b)
       .map(([index, call]) => {
+        const args = safeParse(call.arguments || undefined);
+        // Arguments cut off by max_tokens are not a tool call; erroring beats executing garbage.
+        if (this.#finishReason === "length" && typeof args === "object" && args !== null && "_raw" in args) {
+          throw new AgentBridgeError("AB-1006", {
+            message: "the response was truncated by the token limit mid tool call",
+            details: { finishReason: this.#finishReason },
+          });
+        }
         const toolId = wireNames.get(call.name) ?? call.name;
         return {
           id: call.id ?? `call_${index}`,
           toolId,
           name: toolId.split(":").pop() ?? toolId,
-          arguments: safeParse(call.arguments || undefined),
+          arguments: args,
         };
       });
     const usage = this.#usage ?? (this.#model ? { model: this.#model } : undefined);

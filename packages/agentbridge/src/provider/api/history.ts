@@ -20,14 +20,19 @@ export interface ApiHistoryStore {
 export interface FileHistoryStoreOptions {
   /** Directory for the history files, e.g. `~/.agentbridge/api-history`. Created on demand. */
   directory: string;
+  /** Called when a corrupt file is quarantined, so the host can tell the user why the resumed
+   *  conversation came back blank instead of silently starting over. */
+  onCorrupt?: (sessionId: string, quarantinedTo: string) => void;
 }
 
 /** One JSON file per session, written atomically (temp + rename). */
 export class FileHistoryStore implements ApiHistoryStore {
   readonly #directory: string;
+  readonly #onCorrupt: ((sessionId: string, quarantinedTo: string) => void) | undefined;
 
   constructor(options: FileHistoryStoreOptions) {
     this.#directory = options.directory;
+    this.#onCorrupt = options.onCorrupt;
   }
 
   async load(sessionId: string): Promise<ApiMessage[] | undefined> {
@@ -43,8 +48,11 @@ export class FileHistoryStore implements ApiHistoryStore {
       return Array.isArray(parsed.messages) ? parsed.messages : undefined;
     } catch {
       // A corrupt file is quarantined rather than fatal (spec 28.3): the session resumes
-      // fresh, and the bytes stay on disk for diagnosis.
-      await rename(this.#path(sessionId), `${this.#path(sessionId)}.corrupt`).catch(() => undefined);
+      // fresh, and the bytes stay on disk for diagnosis. Timestamped, so a second corruption
+      // does not overwrite the first one's evidence.
+      const quarantinedTo = `${this.#path(sessionId)}.corrupt-${Date.now()}`;
+      await rename(this.#path(sessionId), quarantinedTo).catch(() => undefined);
+      this.#onCorrupt?.(sessionId, quarantinedTo);
       return undefined;
     }
   }
@@ -52,7 +60,8 @@ export class FileHistoryStore implements ApiHistoryStore {
   async save(sessionId: string, history: ApiMessage[]): Promise<void> {
     await mkdir(this.#directory, { recursive: true });
     const path = this.#path(sessionId);
-    const temp = `${path}.tmp`;
+    // pid-scoped, so two processes sharing a directory cannot rename each other's partial file.
+    const temp = `${path}.${process.pid}.tmp`;
     await writeFile(temp, JSON.stringify({ version: 1, messages: history }), "utf8");
     await rename(temp, path);
   }

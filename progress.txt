@@ -906,3 +906,37 @@ definitions, config, SDK/REST/WS surface, error code ranges, and the gotchas gen
 tends to get wrong (ESM-only, send() awaits the turn, delta-append/full-replace, ask defaults).
 Claims were verified against the code before shipping (FileStorage export, WS subscribe frame
 shape, runtime.json path, autoApprove).
+
+--- 2026-08-16 (9) ---
+Adversarial review pass (independent code-review agent over the API layer and recent core
+changes) found 18 defects, all reproduced by the reviewer against the built code. All fixed in
+0.5.3, each with a regression test:
+
+CRITICAL - an interrupt was reported as AB-1006 fatal and bricked the session in the error
+state; the running->ready interrupt transition was unreachable for every API provider. Aborts
+now raise AB-3005 in fetchWithRetry and ApiProviderBase.send unwinds cleanly; proven by a
+full-stack test (send -> interrupt -> status ready, zero fatal errors, session still usable).
+
+HIGH - a mid-turn failure discarded tool side effects that had already executed: history now
+commits after every completed tool round, so an interrupted turn remembers the deletion it
+performed. HIGH - mid-stream SSE error frames were swallowed and a truncated fragment shipped
+as a confident done:true answer; both collectors now fail the turn with AB-1006 (and refuse
+tool calls whose JSON was cut by max_tokens/length). HIGH - Gemini wire names had no collision
+handling: two long tool ids truncating to the same 60 chars meant the model's read-only call
+executed the DESTRUCTIVE sibling; Gemini now goes through the shared uniqueWireName table.
+HIGH - stop() released queued senders into a torn-down session (orphan CLI processes after
+stop() returned); stop now drains the queue behind a closing flag and concurrent stops dedupe.
+
+MEDIUM/LOW - agent tools were advertised to executors only when an McpManager was attached;
+usage objects were aliased out of get()/list() and mutated under the caller's snapshot;
+#callAgent scoped replies by role only (persistent sessions could return another caller's
+answer - now turn-id filtered); retryable response bodies and SSE readers leaked without
+cancel; the per-request timeout was actually an 18-minute whole-turn ceiling (now an idle
+deadline that resets per delta); the SSE decoder never flushed its last line; Gemini reused
+call_0 across rounds, rewrote anyOf unions as {type:"object"}, and sent ungrouped consecutive
+functionResponse contents; FileHistoryStore quarantines are timestamped with an onCorrupt hook
+and pid-scoped temp files; one poisoned write no longer kills FileStorage's queue forever;
+tools.call honors its resolve-dont-throw contract for unknown ids; setModel guards stopped
+sessions; approval callIds use randomUUID; provider-reported token totals win over in+out.
+
+Tests: 342 -> 352 passing. Scenario A re-verified live against the real CLI.

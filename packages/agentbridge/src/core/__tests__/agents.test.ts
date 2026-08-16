@@ -129,6 +129,28 @@ describe("agents as tools (spec 12.6)", () => {
     assert.equal(agent.tools.get("agent:reviewer:ask").name, "ask_reviewer");
   });
 
+  it("offers agent tools to a provider's tool executor even with no MCP attached", async () => {
+    const { agent, provider } = await bridge();
+    agent.agents.define({ id: "helper", name: "Helper", description: "Echoes.", provider: "echo" });
+
+    await agent.sessions.create({ provider: "echo" });
+    const executor = provider.starts.at(-1)?.toolExecutor as { list(): Array<{ id: string }> } | undefined;
+    assert.ok(executor, "the session must receive a tool executor");
+    assert.deepEqual(
+      executor.list().map((tool) => tool.id),
+      ["agent:helper:ask"],
+      "the sub-agent must be advertised, not just callable",
+    );
+  });
+
+  it("tools.call resolves ok:false for an unknown tool instead of throwing", async () => {
+    const { agent } = await bridge();
+    agent.agents.define({ id: "helper", name: "Helper", description: "Echoes.", provider: "echo" });
+    const result = await agent.tools.call("mcp:ghost:tool", {});
+    assert.equal(result.ok, false);
+    assert.ok(result.error, "the documented contract: resolve with ok:false, never throw");
+  });
+
   it("still reports AB-2003 when neither MCP nor agents exist", async () => {
     const { agent } = await bridge();
     assert.throws(() => agent.tools.list(), (error: any) => error.code === "AB-2003");

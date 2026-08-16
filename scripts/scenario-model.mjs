@@ -22,7 +22,9 @@ await session.send("What word did I ask you to remember? Reply with only that wo
 console.log(`turn 2 (model=${session.info.model}): ${JSON.stringify(replies[1])}`);
 
 const checks = [
-  ["the session reports the new model", session.info.model === "haiku"],
+  // setModel("haiku") sends the alias; the provider then reports the model that actually served
+  // the turn (e.g. claude-haiku-4-5-20251001) and that ground truth wins in session.info.model.
+  ["the session reports the served haiku model", /haiku/.test(session.info.model ?? "")],
   ["the new model remembers the old model's conversation", /plum/i.test(replies[1] ?? "")],
 ];
 let failed = 0;
