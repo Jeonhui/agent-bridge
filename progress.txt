@@ -720,3 +720,29 @@ always answers: a closed UI becomes an immediate deny, and no rejection can esca
 Verified against the real CLI both ways: interactive approve writes the haiku and the loop
 continues; stdin-closed auto-denies, the agent explains the denial to the user in its reply, the
 file is untouched, and the app exits 0.
+
+[2026-08-16] Model selection, session introspection, and a readline lesson
+
+Asked what model selection looks like, the audit found: session-level model existed and reached
+both adapters, but there was no mid-conversation switch, no provider default (spec 19.8 was
+documented and unimplemented), and session.tools() was promised by spec 14.3 with no implementation.
+
+Shipped, full stack (core, REST PATCH /sessions/:id/model, SDK both backends, spec renumbered to 29
+routes):
+- session.setModel(name). Context survives the switch because adapters run one CLI process per turn
+  and read the model from the retained start options at send time - the adapter contract now says
+  so explicitly. Proven with the real CLI: sonnet is told PLUM, the session switches to haiku,
+  haiku answers PLUM.
+- session.tools() and, in the chat app, /tools showing the session's MCP servers with state and
+  every visible tool with its permissions.
+- ClaudeProvider/CodexProvider defaultModel option.
+- chat gains --model and /model with the conversation continuing across the switch.
+
+The chat app then silently lost turn 2 in piped runs, and the repro isolated it to readline, not
+the library: rl.question only catches a line that arrives while the question is pending, so two
+lines arriving in one chunk (a paste, a pipe) deliver the first and silently drop the second. The
+example now feeds every line through a queue that both the chat loop and the approval prompt pull
+from, and the burst run passes: Noted -> /model haiku -> MAPLE. The EOF auto-deny path still holds,
+with the agent explaining the denial in its reply.
+
+Tests: 293 passing.

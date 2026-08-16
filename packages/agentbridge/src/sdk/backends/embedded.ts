@@ -88,6 +88,8 @@ export class EmbeddedClient implements AgentBridgeClient {
       stop: () => session.stop(),
       updateMcp: (serverIds: string[]) => session.updateMcp(serverIds),
       setPermissionMode: (mode) => session.setPermissionMode(mode),
+      setModel: (model: string) => session.setModel(model),
+      tools: async () => session.tools(),
       on: (type, handler) => session.on(type, handler),
     };
   }

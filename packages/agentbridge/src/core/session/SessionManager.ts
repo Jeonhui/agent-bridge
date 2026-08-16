@@ -88,6 +88,11 @@ export interface SessionLogger {
 interface SessionRecord {
   info: AgentSession;
   handle: { sessionId: string; providerId: string; nativeSessionId?: string };
+  /**
+   * The exact object handed to provider.start(). Adapters read per-turn values (model) from it
+   * at send time, so mutating it here changes the next turn without touching the adapter.
+   */
+  startOptions: { model?: string; [key: string]: unknown };
   seq: SequenceCounter;
   queueing: boolean;
   turn: { id: string; controller: AbortController; done: Promise<void> } | undefined;
@@ -160,6 +165,7 @@ export class SessionManager {
           providerId: persisted.provider,
           ...(persisted.nativeSessionId ? { nativeSessionId: persisted.nativeSessionId } : {}),
         },
+        startOptions: { sessionId: persisted.id },   // rebuilt properly on resume()
         seq: new SequenceCounter(),
         queueing: true,
         turn: undefined,
@@ -201,6 +207,7 @@ export class SessionManager {
     const record: SessionRecord = {
       info,
       handle: { sessionId: id, providerId: provider.id },
+      startOptions: { sessionId: id },
       seq: new SequenceCounter(),
       queueing: options.queueing ?? true,
       turn: undefined,
@@ -222,7 +229,7 @@ export class SessionManager {
       // process ever sees the real value (spec 26.3).
       const env = await resolveSecrets(options.env, this.#secrets);
 
-      const handle = await provider.start({
+      record.startOptions = {
         sessionId: id,
         ...(mcpServers.length > 0 ? { mcpServers } : {}),
         ...(preauthorized.length > 0 ? { preauthorizedMcpServers: preauthorized } : {}),
@@ -231,7 +238,8 @@ export class SessionManager {
         ...(env ? { env } : {}),
         ...(options.model ? { model: options.model } : {}),
         ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}),
-      });
+      };
+      const handle = await provider.start(record.startOptions as never);
       record.handle = handle;
       if (handle.nativeSessionId) record.info.nativeSessionId = handle.nativeSessionId;
       this.#transition(record, "started");
@@ -324,6 +332,27 @@ export class SessionManager {
     return { ...record.info };
   }
 
+  /**
+   * Switches the model for the next turn (spec 13.3).
+   *
+   * Works mid-conversation without losing context: adapters run one CLI process per turn and read
+   * the model from the retained start options at send time, while continuity comes from the CLI's
+   * own session id. The adapter contract requires reading per-turn values at send time, not
+   * caching them at start.
+   */
+  async setModel(sessionId: string, model: string): Promise<AgentSession> {
+    const record = this.#require(sessionId);
+    if (!model || typeof model !== "string") {
+      throw new AgentBridgeError("AB-3001", { message: "a model name is required" });
+    }
+
+    record.info.model = model;
+    record.startOptions["model"] = model;
+    record.info.updatedAt = new Date();
+    await this.#persist(record);
+    return { ...record.info };
+  }
+
   async setPermissionMode(
     sessionId: string,
     mode: AgentSession["permissionMode"],
@@ -358,7 +387,7 @@ export class SessionManager {
     this.#transition(record, "resume");
 
     try {
-      const handle = await provider.start({
+      record.startOptions = {
         sessionId: record.info.id,
         ...(record.info.workingDirectory ? { workingDirectory: record.info.workingDirectory } : {}),
         ...(env ? { env } : {}),
@@ -366,7 +395,8 @@ export class SessionManager {
         ...(mcpServers.length > 0 ? { mcpServers } : {}),
         ...(preauthorized.length > 0 ? { preauthorizedMcpServers: preauthorized } : {}),
         ...(record.handle.nativeSessionId ? { resumeToken: record.handle.nativeSessionId } : {}),
-      });
+      };
+      const handle = await provider.start(record.startOptions as never);
 
       record.handle = handle;
       if (handle.nativeSessionId) record.info.nativeSessionId = handle.nativeSessionId;

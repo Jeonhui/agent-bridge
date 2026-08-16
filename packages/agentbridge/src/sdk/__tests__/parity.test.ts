@@ -98,6 +98,17 @@ function parity(name: string, setup: () => Promise<{ client: AgentBridgeClient; 
       assert.equal((await session.setPermissionMode("allow")).permissionMode, "allow");
     });
 
+    it("switches the model on a live session", async () => {
+      const session = await client.sessions.create({ provider: "echo", model: "sonnet" });
+      assert.equal((await session.setModel("haiku")).model, "haiku");
+      assert.equal((await session.info()).model, "haiku");
+    });
+
+    it("lists the tools a session can see", async () => {
+      const session = await client.sessions.create({ provider: "echo" });
+      assert.deepEqual(await session.tools(), []);
+    });
+
     it("lists MCP servers", async () => {
       assert.deepEqual(await client.mcp.list(), []);
     });

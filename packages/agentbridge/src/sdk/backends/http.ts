@@ -167,6 +167,12 @@ export class HttpClient implements AgentBridgeClient {
         this.#request<AgentSession>("PATCH", `/sessions/${sessionId}/mcp`, { servers: serverIds }),
       setPermissionMode: (mode) =>
         this.#request<AgentSession>("PATCH", `/sessions/${sessionId}/permission-mode`, { mode }),
+      setModel: (model: string) =>
+        this.#request<AgentSession>("PATCH", `/sessions/${sessionId}/model`, { model }),
+      tools: async () =>
+        (await this.#request<{ items: ToolDescriptor[] }>(
+          "GET", `/tools?sessionId=${encodeURIComponent(sessionId)}`,
+        )).items,
       on: (type, handler) =>
         this.#subscribe(type, sessionId, handler as (event: AgentEvent) => void),
     };

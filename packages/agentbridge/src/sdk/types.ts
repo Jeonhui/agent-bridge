@@ -44,6 +44,8 @@ export interface ClientSession {
   stop(): Promise<void>;
   updateMcp(serverIds: string[]): Promise<AgentSession>;
   setPermissionMode(mode: AgentSession["permissionMode"]): Promise<AgentSession>;
+  setModel(model: string): Promise<AgentSession>;
+  tools(): Promise<ToolDescriptor[]>;
   on<E extends AgentEventType>(type: E, handler: (event: AgentEventOf<E>) => void): Unsubscribe;
 }
 

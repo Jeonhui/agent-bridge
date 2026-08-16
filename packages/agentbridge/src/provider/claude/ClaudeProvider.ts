@@ -25,6 +25,8 @@ export interface ClaudeProviderOptions {
   command?: string;
   /** Per-turn deadline. Defaults to 300000ms. */
   turnTimeoutMs?: number;
+  /** Used when a session does not choose a model (spec 19.8). */
+  defaultModel?: string;
 }
 
 interface SessionRuntime {
@@ -58,12 +60,14 @@ export class ClaudeProvider implements AgentProvider {
   readonly #command: string;
   readonly #executablePath: string | undefined;
   readonly #turnTimeoutMs: number;
+  readonly #defaultModel: string | undefined;
   readonly #sessions = new Map<string, SessionRuntime>();
 
   constructor(options: ClaudeProviderOptions = {}) {
     this.#command = options.command ?? "claude";
     this.#executablePath = options.executablePath;
     this.#turnTimeoutMs = options.turnTimeoutMs ?? 300_000;
+    this.#defaultModel = options.defaultModel;
   }
 
   async detect(): Promise<ProviderDetection> {
@@ -203,8 +207,9 @@ export class ClaudeProvider implements AgentProvider {
     if (session.handle.nativeSessionId) {
       args.push("--resume", session.handle.nativeSessionId);
     }
-    if (session.options.model) {
-      args.push("--model", session.options.model);
+    const model = session.options.model ?? this.#defaultModel;
+    if (model) {
+      args.push("--model", model);
     }
     if (session.options.systemPrompt) {
       args.push("--append-system-prompt", session.options.systemPrompt);

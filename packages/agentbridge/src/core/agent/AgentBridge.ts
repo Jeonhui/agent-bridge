@@ -101,6 +101,10 @@ export interface Session {
   stop(): Promise<void>;
   updateMcp(serverIds: string[]): Promise<AgentSession>;
   setPermissionMode(mode: AgentSession["permissionMode"]): Promise<AgentSession>;
+  /** Switches the model for the next turn; conversation context survives (spec 13.3). */
+  setModel(model: string): Promise<AgentSession>;
+  /** The tools this session can see: its bound MCP servers plus built-ins (spec 14.3). */
+  tools(): ToolDescriptor[];
   on<E extends AgentEventType>(type: E, handler: (event: AgentEventOf<E>) => void): Unsubscribe;
 }
 
@@ -248,6 +252,8 @@ export class AgentBridge {
     },
     updateMcp: (sessionId: string, serverIds: string[]): Promise<AgentSession> =>
       this.#sessionManager.updateMcp(sessionId, serverIds),
+    setModel: (sessionId: string, model: string): Promise<AgentSession> =>
+      this.#sessionManager.setModel(sessionId, model),
     setPermissionMode: (
       sessionId: string,
       mode: AgentSession["permissionMode"],
@@ -357,6 +363,8 @@ export class AgentBridge {
       stop: () => manager.stop(sessionId),
       updateMcp: (serverIds: string[]) => manager.updateMcp(sessionId, serverIds),
       setPermissionMode: (mode) => manager.setPermissionMode(sessionId, mode),
+      setModel: (model: string) => manager.setModel(sessionId, model),
+      tools: () => this.tools.list({ sessionId }),
       on: (type, handler) => events.onSession(sessionId, type, handler),
     };
   }

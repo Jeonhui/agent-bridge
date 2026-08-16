@@ -617,6 +617,11 @@ as they were first guessed.
 | Interrupt | Terminate the process while retaining session state; resume on the next turn |
 | Sandbox | Pin the CLI's own approval and sandbox options to the least-privilege setting so they do not double up with AgentBridge policy; AgentBridge owns approval |
 
+Adapters must read per-turn values — the model above all — from the start options at send time
+rather than caching them at start. The core retains the object it passed to `start()` and mutates
+it when the host calls `setModel`, which is what lets a conversation switch models without losing
+its context. (MUST)
+
 #### 12.3.4 Custom providers
 
 External developers may implement `AgentProvider` and register it with `providers.register()`. (MUST) Registered adapters follow the same detection and session-creation flow as built-in ones.
@@ -716,6 +721,7 @@ Transition rules:
 | `stopSession` | Terminate the session and reclaim the process | MUST |
 | `updateMcp` | Change MCP bindings on a live session | SHOULD |
 | `setPermissionMode` | Change the permission mode on a live session | SHOULD |
+| `setModel` | Switch the model for the next turn; conversation context survives because adapters run one process per turn and continuity lives in the CLI's session id | SHOULD |
 
 ### 13.4 Working directory
 
@@ -825,6 +831,7 @@ interface Session {
   stop(): Promise<void>;
   updateMcp(serverIds: string[]): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
+  setModel(model: string): Promise<void>;    // next turn uses it; context survives
   tools(): Promise<AgentTool[]>;             // tools visible to this session
   on<E extends AgentEventType>(event: E, handler: (e: AgentEventOf<E>) => void): Unsubscribe;
 }
@@ -1113,22 +1120,23 @@ off();   // unsubscribe
 | 10 | DELETE | `/sessions/:id` | – | 204 | 404 |
 | 11 | PATCH | `/sessions/:id/mcp` | `{ servers: string[] }` | 200 `AgentSession` | 404, 400 `AB-2004` |
 | 12 | PATCH | `/sessions/:id/permission-mode` | `{ mode }` | 200 `AgentSession` | 404, 400 |
-| 13 | GET | `/sessions/:id/events` | – (query `sinceSeq`,`limit`) | `{ items: AgentEvent[] }` | 404 |
-| 14 | GET | `/mcp` | – | `{ items: McpServerState[] }` | – |
-| 15 | POST | `/mcp` | `McpServerConfig` | 201 `McpServerState` | 400 `AB-2001`, 409 `AB-2002` |
-| 16 | GET | `/mcp/:id` | – | `McpServerState` | 404 `AB-2003` |
-| 17 | DELETE | `/mcp/:id` | – | 204 | 404, 409 (requires `force=true` when sessions still use it) |
-| 18 | POST | `/mcp/:id/connect` | – | 200 `McpServerState` | 404, 502 `AB-2101` |
-| 19 | POST | `/mcp/:id/disconnect` | – | 204 | 404 |
-| 20 | POST | `/mcp/:id/reload` | – | 200 `McpReloadResult` | 404, 502 `AB-2102` |
-| 21 | GET | `/tools` | – (query `sessionId`,`source`,`server`) | `{ items: AgentTool[] }` | – |
-| 22 | GET | `/tools/:id` | – | `AgentTool` | 404 `AB-2201` |
-| 23 | POST | `/tools/:id/call` | `{ arguments, sessionId?, timeoutMs? }` | 200 `ToolCallResult` | 403 `AB-4001`, 408 `AB-4003`, 502 `AB-2202` |
-| 24 | GET | `/permissions/pending` | – (query `sessionId`) | `{ items: ApprovalRequest[] }` | – |
-| 25 | POST | `/permissions/:requestId/approve` | `{ remember? }` | 204 | 404 `AB-4002`, 409 (already decided) |
-| 26 | POST | `/permissions/:requestId/deny` | `{ reason? }` | 204 | 404, 409 |
-| 27 | GET | `/permissions/policies` | – | `{ items: PermissionRule[] }` | – |
-| 28 | PUT | `/permissions/policies` | `PermissionRule` | 200 `PermissionRule` | 400 |
+| 13 | PATCH | `/sessions/:id/model` | `{ model }` | 200 `AgentSession` | 404, 400 |
+| 14 | GET | `/sessions/:id/events` | – (query `sinceSeq`,`limit`) | `{ items: AgentEvent[] }` | 404 |
+| 15 | GET | `/mcp` | – | `{ items: McpServerState[] }` | – |
+| 16 | POST | `/mcp` | `McpServerConfig` | 201 `McpServerState` | 400 `AB-2001`, 409 `AB-2002` |
+| 17 | GET | `/mcp/:id` | – | `McpServerState` | 404 `AB-2003` |
+| 18 | DELETE | `/mcp/:id` | – | 204 | 404, 409 (requires `force=true` when sessions still use it) |
+| 19 | POST | `/mcp/:id/connect` | – | 200 `McpServerState` | 404, 502 `AB-2101` |
+| 20 | POST | `/mcp/:id/disconnect` | – | 204 | 404 |
+| 21 | POST | `/mcp/:id/reload` | – | 200 `McpReloadResult` | 404, 502 `AB-2102` |
+| 22 | GET | `/tools` | – (query `sessionId`,`source`,`server`) | `{ items: AgentTool[] }` | – |
+| 23 | GET | `/tools/:id` | – | `AgentTool` | 404 `AB-2201` |
+| 24 | POST | `/tools/:id/call` | `{ arguments, sessionId?, timeoutMs? }` | 200 `ToolCallResult` | 403 `AB-4001`, 408 `AB-4003`, 502 `AB-2202` |
+| 25 | GET | `/permissions/pending` | – (query `sessionId`) | `{ items: ApprovalRequest[] }` | – |
+| 26 | POST | `/permissions/:requestId/approve` | `{ remember? }` | 204 | 404 `AB-4002`, 409 (already decided) |
+| 27 | POST | `/permissions/:requestId/deny` | `{ reason? }` | 204 | 404, 409 |
+| 28 | GET | `/permissions/policies` | – | `{ items: PermissionRule[] }` | – |
+| 29 | PUT | `/permissions/policies` | `PermissionRule` | 200 `PermissionRule` | 400 |
 
 The mapping to the SDK is 1:1 with a single exception: `providers.register()`. Registering a custom provider requires injecting code, so it is not exposed over REST. To use a custom provider with the runtime, load the adapter package when the runtime starts. (MUST)
 

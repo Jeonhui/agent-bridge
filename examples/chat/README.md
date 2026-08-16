@@ -28,3 +28,13 @@ Three things are happening, and they are the whole AgentBridge story:
    Approvals are remembered for the session, so the second write will not ask.
 
 Everything lives in `sandbox/`; the agent cannot escape it.
+
+Two more conveniences worth trying:
+
+```text
+/tools           what this session can see — its MCP servers and every tool with its permissions
+/model haiku     switch models mid-conversation; the context survives, because turns run as
+                 separate CLI processes and continuity lives in the CLI's own session id
+```
+
+Start on a specific model with `node index.mjs --model sonnet`.

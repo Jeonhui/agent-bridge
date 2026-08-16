@@ -247,6 +247,14 @@ export class RuntimeServer {
       return { status: 200, body: await this.#agent.sessions.updateMcp(params["id"]!, servers) };
     });
 
+    route("PATCH", "/sessions/:id/model", async ({ params, body }) => {
+      const { model } = (body ?? {}) as { model?: string };
+      if (typeof model !== "string" || model.length === 0) {
+        throw new AgentBridgeError("AB-5004", { message: "model must be a non-empty string" });
+      }
+      return { status: 200, body: await this.#agent.sessions.setModel(params["id"]!, model) };
+    });
+
     route("PATCH", "/sessions/:id/permission-mode", async ({ params, body }) => {
       const { mode } = (body ?? {}) as { mode?: string };
       if (mode !== "ask" && mode !== "allow" && mode !== "deny") {

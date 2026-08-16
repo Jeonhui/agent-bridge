@@ -6,7 +6,7 @@
 //   - the agent using tools the host provided (a sandboxed filesystem, over MCP)
 //   - ask mode: the agent stops before every write and this app asks YOU, y/n
 //
-// Run it:   node index.mjs        (needs the claude CLI installed and logged in)
+// Run it:   node index.mjs [--model sonnet]     (needs the claude CLI installed and logged in)
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
@@ -59,17 +59,40 @@ await mcp.add({
   args: [join(import.meta.dirname, "fs-mcp.mjs"), sandbox],
 });
 
+const modelFlag = process.argv.indexOf("--model");
 const session = await agent.sessions.create({
   provider: "claude",
+  ...(modelFlag >= 0 && process.argv[modelFlag + 1] ? { model: process.argv[modelFlag + 1] } : {}),
   workingDirectory: sandbox,
   mcp: ["fs"],
   permissionMode: "ask",
 });
 
-// ── render events; the host owns the UI ──────────────────────────────────────
+// ── input: a line queue, because readline drops lines nobody is waiting for ──
+// rl.question only catches a line if it is already pending when the line arrives. Paste two
+// lines (or pipe input) and the second is silently discarded. The queue keeps every line and
+// hands them out in order — to the chat loop and to approval prompts alike.
 const rl = createInterface({ input: process.stdin, output: process.stdout });
+const pendingLines = [];
+const waiters = [];
 let stdinClosed = false;
-rl.on("close", () => { stdinClosed = true; });
+rl.on("line", (line) => {
+  const waiter = waiters.shift();
+  if (waiter) waiter(line);
+  else pendingLines.push(line);
+});
+rl.on("close", () => {
+  stdinClosed = true;
+  while (waiters.length > 0) waiters.shift()(null);   // wake anyone waiting: no more input
+});
+
+/** Prompts and returns the next line, or null once stdin is gone. Never loses a line. */
+function nextLine(prompt) {
+  process.stdout.write(prompt);
+  if (pendingLines.length > 0) return Promise.resolve(pendingLines.shift());
+  if (stdinClosed) return Promise.resolve(null);
+  return new Promise((resolve) => waiters.push(resolve));
+}
 
 session.on("message", (e) => console.log(`\n${bold("agent")}  ${e.content}`));
 session.on("tool_call", (e) => console.log(dim(`  ⚙ ${e.tool} ${JSON.stringify(e.arguments).slice(0, 80)}`)));
@@ -83,34 +106,45 @@ session.on("tool_call", (e) => console.log(dim(`  ⚙ ${e.tool} ${JSON.stringify
 //     so an async throw here would crash the host, not the library.
 agent.on("permission_request", (e) => {
   void (async () => {
-    if (stdinClosed) {
-      agent.permissions.deny(e.requestId, { reason: "no user available to approve" });
-      return;
-    }
-    const answer = await rl.question(
+    const answer = await nextLine(
       `\n${yellow("approve?")} agent wants ${bold(e.tool)} (${e.permissions.join(",")}) ` +
       `${dim(JSON.stringify(e.arguments).slice(0, 60))}  [y/N] `,
     );
-    if (answer.trim().toLowerCase() === "y") agent.permissions.approve(e.requestId, { remember: "session" });
-    else agent.permissions.deny(e.requestId, { reason: "declined at the prompt" });
+    if (answer !== null && answer.trim().toLowerCase() === "y") {
+      agent.permissions.approve(e.requestId, { remember: "session" });
+    } else {
+      agent.permissions.deny(e.requestId, { reason: answer === null ? "no user available to approve" : "declined at the prompt" });
+    }
   })().catch(() => {
     try { agent.permissions.deny(e.requestId, { reason: "the approval prompt failed" }); } catch {}
   });
 });
 
 // ── the chat loop ────────────────────────────────────────────────────────────
-console.log(bold("agent-chat") + dim(`  sandbox: ${sandbox}`));
-console.log(dim("commands: /tools  /quit — writes need your approval\n"));
+console.log(bold("agent-chat") + dim(`  model: ${session.info.model ?? "(cli default)"}  sandbox: ${sandbox}`));
+console.log(dim("commands: /tools  /model <name>  /quit — writes need your approval\n"));
 
 for (;;) {
-  if (stdinClosed) break;
-  let line;
-  try { line = (await rl.question(`${bold("you")}    `)).trim(); }
-  catch { break; }                       // stdin ended mid-question: leave like /quit
+  const raw = await nextLine(`${bold("you")}    `);
+  if (raw === null) break;               // stdin ended: leave like /quit
+  const line = raw.trim();
   if (line === "" ) continue;
   if (line === "/quit") break;
   if (line === "/tools") {
-    for (const t of agent.tools.list()) console.log(dim(`  ${t.id}  [${t.permissions.join(",")}]`));
+    // What THIS session can see: its bound MCP servers plus built-ins.
+    for (const id of session.info.mcpServers) {
+      const server = agent.mcp.get(id);
+      console.log(dim(`  mcp ${id}  ${server.state}  (${server.toolCount} tools)`));
+    }
+    for (const t of session.tools()) console.log(dim(`    ${t.id}  [${t.permissions.join(",")}]`));
+    continue;
+  }
+  if (line.startsWith("/model")) {
+    const name = line.slice(6).trim();
+    if (!name) { console.log(dim(`  model: ${session.info.model ?? "(cli default)"}`)); continue; }
+    // Mid-conversation switch: the next turn runs on the new model, the context survives.
+    await session.setModel(name);
+    console.log(dim(`  model → ${name} (conversation continues)`));
     continue;
   }
   try {

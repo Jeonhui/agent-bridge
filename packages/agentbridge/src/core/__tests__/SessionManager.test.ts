@@ -346,3 +346,81 @@ describe("SessionManager stop is idempotent", () => {
     assert.deepEqual(provider.stopped.sort(), [a.id, b.id].sort());
   });
 });
+
+describe("SessionManager.setModel (spec 13.3)", () => {
+  /** Records the model visible to the adapter at each send, read from the retained options. */
+  function modelProbe() {
+    const seen: Array<string | undefined> = [];
+    let retained: { model?: string } | undefined;
+    const provider: SessionProvider = {
+      id: "fake",
+      start: async (options) => {
+        retained = options as { model?: string };
+        return { sessionId: (options as { sessionId: string }).sessionId, providerId: "fake" };
+      },
+      send: async (_h, _m, { emit }) => {
+        seen.push(retained?.model);
+        emit({ type: "message", role: "assistant", content: "ok", delta: false, done: true });
+      },
+      interrupt: async () => {},
+      stop: async () => {},
+    };
+    return { provider, seen };
+  }
+
+  it("changes the model the adapter sees on the next turn", async () => {
+    const { provider, seen } = modelProbe();
+    const { manager } = harness(provider);
+    const session = await manager.create({ provider: "fake", model: "sonnet" });
+
+    await manager.send(session.id, "one");
+    await manager.setModel(session.id, "haiku");
+    await manager.send(session.id, "two");
+
+    assert.deepEqual(seen, ["sonnet", "haiku"]);
+    assert.equal(manager.get(session.id).model, "haiku");
+  });
+
+  it("applies to a session created without a model", async () => {
+    const { provider, seen } = modelProbe();
+    const { manager } = harness(provider);
+    const session = await manager.create({ provider: "fake" });
+
+    await manager.send(session.id, "one");
+    await manager.setModel(session.id, "opus");
+    await manager.send(session.id, "two");
+
+    assert.deepEqual(seen, [undefined, "opus"]);
+  });
+
+  it("rejects an empty model name", async () => {
+    const { provider } = modelProbe();
+    const { manager } = harness(provider);
+    const session = await manager.create({ provider: "fake" });
+
+    await assert.rejects(
+      () => manager.setModel(session.id, ""),
+      (error: unknown) => error instanceof AgentBridgeError && error.code === "AB-3001",
+    );
+  });
+
+  it("survives a restart: the persisted session carries the switched model", async () => {
+    const { provider } = modelProbe();
+    const events = new EventBus();
+    const stored = new Map<string, { id: string; model?: string }>();
+    const manager = new SessionManager({
+      providers: { get: () => provider },
+      events,
+      storage: {
+        get: async (id: string) => stored.get(id) as never,
+        list: async () => [...stored.values()] as never,
+        put: async (v: { id: string; model?: string }) => void stored.set(v.id, v),
+        delete: async (id: string) => void stored.delete(id),
+      } as never,
+    });
+
+    const session = await manager.create({ provider: "fake", model: "sonnet" });
+    await manager.setModel(session.id, "haiku");
+    assert.equal(stored.get(session.id)?.model, "haiku");
+  });
+});
