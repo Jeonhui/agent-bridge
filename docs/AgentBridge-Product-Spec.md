@@ -698,8 +698,13 @@ Rules the base class enforces:
   single `usage` event naming the model that served it (15.2). Absence of usage data is not an
   error. (MUST)
 - Every knob is host-configurable per instance: `baseUrl`, `apiKey`, `defaultModel`, `headers`,
-  `maxToolRounds`, `requestTimeoutMs`, and `streaming` (on by default for the OpenAI dialect,
-  off where the wire format has no verified stream). (MUST)
+  `maxToolRounds`, `requestTimeoutMs`, `streaming` (on by default for the OpenAI dialect, off
+  where the wire format has no verified stream), and `retry`. (MUST)
+- Rate limits and transient failures retry automatically: HTTP 429/5xx and network errors back
+  off (honoring `Retry-After`, exponential with jitter otherwise) up to `retry.maxRetries`
+  (default 2). Other 4xx are the request's own fault and fail immediately. Streamed requests
+  retry only until the first byte, because retrying later would duplicate deltas already
+  emitted. Backoff aborts promptly when the turn is interrupted. (MUST)
 
 Shipped implementations:
 
@@ -866,6 +871,29 @@ Merge order (lowest to highest)
 - MCP servers own their `env` independently of session env. Neither inherits from the other. (MUST)
 - Secrets such as API keys should be referenced as `secret://<key>` rather than written in plaintext config. (SHOULD)
 
+### 13.6 Message attachments
+
+```typescript
+export interface MessageAttachment {
+  type: "image" | "document";
+  data: string;        // base64, no data: prefix - must survive JSON transport unchanged
+  mimeType: string;
+  name?: string;
+}
+
+session.send("what is in this screenshot?", { attachments: [png] });
+```
+
+- Attachments ride the message: `send(message, { attachments })` in the SDK,
+  `{ message, attachments }` in `POST /sessions/:id/messages`. (MUST)
+- Each adapter maps them onto its wire format: Anthropic `image`/`document` blocks, Gemini
+  `inlineData` parts, the OpenAI dialect `image_url` data URLs (images only - it has no document
+  part). (MUST)
+- An adapter that cannot carry an attachment rejects the turn with `AB-1005` rather than silently
+  dropping it; the CLI adapters reject all attachments until a CLI path is verified end to end.
+  (MUST)
+- Attachments are part of the replay history, so a resumed API session replays them. (MUST)
+
 ---
 
 ## 14. SDK API specification
@@ -967,7 +995,7 @@ interface Session {
 }
 
 interface SendOptions {
-  attachments?: Attachment[];      // extra context such as file paths
+  attachments?: MessageAttachment[];   // base64 payloads mapped per adapter (13.6)
   timeoutMs?: number;
 }
 

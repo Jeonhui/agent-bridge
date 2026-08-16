@@ -9,6 +9,7 @@ export {
   type ApiToolCall,
   type ApiTurnResult,
   type ApiUsage,
+  type RetryPolicy,
 } from "./base.js";
 export { FileHistoryStore, type ApiHistoryStore, type FileHistoryStoreOptions } from "./history.js";
 export { AnthropicProvider, type AnthropicOptions } from "./anthropic.js";

@@ -21,6 +21,8 @@ export interface ApiMessage {
   /** On tool results: the registry id of the tool that produced them (wire formats that key
    *  responses by function name, like Gemini, rebuild the name from this). */
   toolId?: string;
+  /** On user messages: binary payloads (spec 13.6), kept in history so resume replays them. */
+  attachments?: Array<{ type: "image" | "document"; data: string; mimeType: string; name?: string }>;
 }
 
 export interface ApiToolCall {
@@ -61,6 +63,30 @@ export interface ApiProviderBaseOptions {
    * memory and resume is honestly false.
    */
   history?: ApiHistoryStore;
+  /** Retry policy for rate limits and transient failures. See RetryPolicy for the defaults. */
+  retry?: RetryPolicy;
+}
+
+/**
+ * What gets retried: HTTP 429, 5xx, and network-level failures - the failures that are the
+ * server's fault, not the request's. A 4xx other than 429 is the request's fault and retrying
+ * would just repeat it. `Retry-After` is honored when present; otherwise the delay is
+ * exponential with jitter. Streamed requests retry only until the first byte arrives, because
+ * retrying after deltas were already emitted would duplicate them.
+ */
+export interface RetryPolicy {
+  /** Additional attempts after the first. 0 disables retrying. Defaults to 2. */
+  maxRetries?: number;
+  /** First backoff delay. Defaults to 500ms. */
+  baseDelayMs?: number;
+  /** Backoff ceiling, also applied to Retry-After. Defaults to 10000ms. */
+  maxDelayMs?: number;
+}
+
+interface ResolvedRetryPolicy {
+  maxRetries: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
 }
 
 interface ApiSession {
@@ -89,6 +115,8 @@ export abstract class ApiProviderBase implements AgentProvider {
   readonly #maxToolRounds: number;
   readonly #requestTimeoutMs: number;
   readonly #store: ApiHistoryStore | undefined;
+  /** Resolved retry policy; adapters pass this to apiFetch / apiFetchSse. */
+  protected readonly retry: Readonly<{ maxRetries: number; baseDelayMs: number; maxDelayMs: number }>;
   readonly #sessions = new Map<string, ApiSession>();
 
   constructor(options: ApiProviderBaseOptions) {
@@ -98,6 +126,11 @@ export abstract class ApiProviderBase implements AgentProvider {
     this.#maxToolRounds = options.maxToolRounds ?? 8;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? 120_000;
     this.#store = options.history;
+    this.retry = {
+      maxRetries: options.retry?.maxRetries ?? 2,
+      baseDelayMs: options.retry?.baseDelayMs ?? 500,
+      maxDelayMs: options.retry?.maxDelayMs ?? 10_000,
+    };
     this.capabilities = {
       streaming: options.streaming ?? false,
       mcp: true,                      // tools arrive through the executor rather than injection
@@ -156,7 +189,7 @@ export abstract class ApiProviderBase implements AgentProvider {
   async send(
     handle: ProviderSessionHandle,
     message: string,
-    { emit, signal }: SendOptions,
+    { emit, signal, attachments }: SendOptions,
   ): Promise<void> {
     const session = this.#sessions.get(handle.sessionId);
     if (!session) {
@@ -169,7 +202,14 @@ export abstract class ApiProviderBase implements AgentProvider {
 
     // The turn mutates a working copy first: a failed turn must not corrupt the history the
     // next turn replays.
-    const working = [...session.history, { role: "user", content: message } as ApiMessage];
+    const working = [
+      ...session.history,
+      {
+        role: "user",
+        content: message,
+        ...(attachments?.length ? { attachments } : {}),
+      } as ApiMessage,
+    ];
 
     const controller = new AbortController();
     const onAbort = () => controller.abort();
@@ -307,22 +347,96 @@ export abstract class ApiProviderBase implements AgentProvider {
   }
 }
 
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504, 529]);
+
+function resolveRetry(retry?: RetryPolicy): ResolvedRetryPolicy {
+  return {
+    maxRetries: retry?.maxRetries ?? 2,
+    baseDelayMs: retry?.baseDelayMs ?? 500,
+    maxDelayMs: retry?.maxDelayMs ?? 10_000,
+  };
+}
+
+function retryDelayMs(attempt: number, response: Response | undefined, policy: ResolvedRetryPolicy): number {
+  const header = response?.headers.get("retry-after");
+  if (header) {
+    const seconds = Number(header);
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, policy.maxDelayMs);
+    const date = Date.parse(header);
+    if (!Number.isNaN(date)) return Math.min(Math.max(date - Date.now(), 0), policy.maxDelayMs);
+  }
+  const exponential = policy.baseDelayMs * 2 ** attempt;
+  return Math.min(exponential + Math.random() * policy.baseDelayMs, policy.maxDelayMs);
+}
+
+function sleep(ms: number, signal: AbortSignal | null | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new AgentBridgeError("AB-3005", { message: "the turn was aborted while backing off" }));
+      return;
+    }
+    // Deliberately not unref'd: this timer alone settles the promise.
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(new AgentBridgeError("AB-3005", { message: "the turn was aborted while backing off" }));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * Fetch with the retry policy applied: 429/5xx and network failures back off and try again,
+ * anything else fails immediately. Returns the first response worth keeping.
+ */
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  providerId: string,
+  policy: ResolvedRetryPolicy,
+): Promise<Response> {
+  for (let attempt = 0; ; attempt += 1) {
+    let response: Response | undefined;
+    let failure: unknown;
+    try {
+      response = await fetch(url, init);
+    } catch (error) {
+      if (init.signal?.aborted) {
+        throw new AgentBridgeError("AB-1006", {
+          message: `${providerId} request aborted`,
+          details: { providerId, url },
+          cause: error,
+        });
+      }
+      failure = error;
+    }
+
+    if (response && !RETRYABLE_STATUS.has(response.status)) return response;
+
+    if (attempt >= policy.maxRetries) {
+      if (response) return response;   // the caller renders the status error with the body
+      throw new AgentBridgeError("AB-1006", {
+        message: `${providerId} request failed after ${attempt + 1} attempts: ${String(failure)}`,
+        details: { providerId, url, attempts: attempt + 1 },
+        cause: failure,
+      });
+    }
+
+    await sleep(retryDelayMs(attempt, response, policy), init.signal);
+  }
+}
+
 /** Shared helper: fetch that turns HTTP failures into provider errors with the body preserved. */
 export async function apiFetch(
   url: string,
   init: RequestInit,
   providerId: string,
+  retry?: RetryPolicy,
 ): Promise<unknown> {
-  let response: Response;
-  try {
-    response = await fetch(url, init);
-  } catch (error) {
-    throw new AgentBridgeError("AB-1006", {
-      message: `${providerId} request failed: ${String(error)}`,
-      details: { providerId, url },
-      cause: error,
-    });
-  }
+  const response = await fetchWithRetry(url, init, providerId, resolveRetry(retry));
 
   const text = await response.text();
   if (!response.ok) {
@@ -380,17 +494,10 @@ export async function apiFetchSse(
   init: RequestInit,
   providerId: string,
   onData: (data: unknown) => void,
+  retry?: RetryPolicy,
 ): Promise<unknown | undefined> {
-  let response: Response;
-  try {
-    response = await fetch(url, init);
-  } catch (error) {
-    throw new AgentBridgeError("AB-1006", {
-      message: `${providerId} request failed: ${String(error)}`,
-      details: { providerId, url },
-      cause: error,
-    });
-  }
+  // Retrying is safe up to the first byte; past it, deltas were already emitted.
+  const response = await fetchWithRetry(url, init, providerId, resolveRetry(retry));
 
   if (!response.ok) {
     const text = await response.text();

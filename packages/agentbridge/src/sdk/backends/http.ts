@@ -168,8 +168,11 @@ export class HttpClient implements AgentBridgeClient {
     return {
       id: sessionId,
       info: () => this.#request<AgentSession>("GET", `/sessions/${sessionId}`),
-      send: (message: string) =>
-        this.#request<SendResult>("POST", `/sessions/${sessionId}/messages`, { message }),
+      send: (message, options) =>
+        this.#request<SendResult>("POST", `/sessions/${sessionId}/messages`, {
+          message,
+          ...(options?.attachments?.length ? { attachments: options.attachments } : {}),
+        }),
       interrupt: async () => {
         await this.#request("POST", `/sessions/${sessionId}/interrupt`);
       },

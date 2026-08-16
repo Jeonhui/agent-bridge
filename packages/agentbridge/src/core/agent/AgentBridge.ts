@@ -5,7 +5,7 @@ import { MemoryStorage } from "../storage/MemoryStorage.js";
 import type { Identified, Storage } from "../storage/Storage.js";
 import type { AgentEventOf, AgentEventType, Unsubscribe } from "../events/types.js";
 import { SessionManager, type SessionProvider, type SendResult } from "../session/SessionManager.js";
-import type { AgentSession, CreateSessionOptions, SessionStatus } from "../session/types.js";
+import type { AgentSession, CreateSessionOptions, SendMessageOptions, SessionStatus } from "../session/types.js";
 import { AgentDirectory, type AgentDefinition } from "./AgentDirectory.js";
 import { resolveConfig, type AgentBridgeConfig, type ResolvedConfig } from "./config.js";
 
@@ -107,7 +107,7 @@ export interface ToolCallResult {
 export interface Session {
   readonly id: string;
   readonly info: AgentSession;
-  send(message: string): Promise<SendResult>;
+  send(message: string, options?: SendMessageOptions): Promise<SendResult>;
   interrupt(): Promise<void>;
   stop(): Promise<void>;
   updateMcp(serverIds: string[]): Promise<AgentSession>;
@@ -411,7 +411,7 @@ export class AgentBridge {
       get info() {
         return manager.get(sessionId);
       },
-      send: (message: string) => manager.send(sessionId, message),
+      send: (message: string, options?: SendMessageOptions) => manager.send(sessionId, message, options),
       interrupt: () => manager.interrupt(sessionId),
       stop: () => manager.stop(sessionId),
       updateMcp: (serverIds: string[]) => manager.updateMcp(sessionId, serverIds),

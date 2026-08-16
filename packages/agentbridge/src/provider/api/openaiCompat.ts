@@ -1,3 +1,4 @@
+import { AgentBridgeError } from "../../core/errors/AgentBridgeError.js";
 import type { ProviderDetection, SessionToolExecutor } from "../core/AgentProvider.js";
 import {
   ApiProviderBase,
@@ -26,6 +27,8 @@ export interface OpenAICompatOptions {
   streaming?: boolean;
   /** History persistence; setting it turns `capabilities.resume` on. See FileHistoryStore. */
   history?: import("./history.js").ApiHistoryStore;
+  /** Retry policy for 429/5xx/network failures. Defaults: 2 retries, 500ms base, 10s cap. */
+  retry?: import("./base.js").RetryPolicy;
 }
 
 /**
@@ -44,6 +47,7 @@ export class OpenAICompatProvider extends ApiProviderBase {
       name: options.name ?? "OpenAI-compatible API",
       streaming: options.streaming ?? true,
       ...(options.history ? { history: options.history } : {}),
+      ...(options.retry ? { retry: options.retry } : {}),
       ...(options.defaultModel ? { defaultModel: options.defaultModel } : {}),
       ...(options.maxToolRounds !== undefined ? { maxToolRounds: options.maxToolRounds } : {}),
       ...(options.requestTimeoutMs !== undefined ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
@@ -102,14 +106,14 @@ export class OpenAICompatProvider extends ApiProviderBase {
 
     if (streaming) {
       const collected = new StreamCollector(request.onDelta!);
-      const plainJson = await apiFetchSse(url, init, this.id, (chunk) => collected.take(chunk as WireChunk));
+      const plainJson = await apiFetchSse(url, init, this.id, (chunk) => collected.take(chunk as WireChunk), this.retry);
       // A server may answer `stream: true` with a plain JSON body; that is a complete answer,
       // not an error, so it takes the non-streaming route below.
       if (plainJson === undefined) return collected.result(wireNames);
       return parseCompletion(plainJson as WireCompletion, wireNames);
     }
 
-    const json = (await apiFetch(url, init, this.id)) as WireCompletion;
+    const json = (await apiFetch(url, init, this.id, this.retry)) as WireCompletion;
     return parseCompletion(json, wireNames);
   }
 }
@@ -126,6 +130,7 @@ export class LiteLLMProvider extends OpenAICompatProvider {
       ...(options.defaultModel !== undefined ? { defaultModel: options.defaultModel } : {}),
       ...(options.headers !== undefined ? { headers: options.headers } : {}),
       ...(options.history !== undefined ? { history: options.history } : {}),
+      ...(options.retry !== undefined ? { retry: options.retry } : {}),
       ...(options.maxToolRounds !== undefined ? { maxToolRounds: options.maxToolRounds } : {}),
       ...(options.requestTimeoutMs !== undefined ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
       ...(options.streaming !== undefined ? { streaming: options.streaming } : {}),
@@ -258,6 +263,23 @@ function toWire(message: ApiMessage, wireNames: Map<string, string>): Record<str
   }
   if (message.role === "tool") {
     return { role: "tool", tool_call_id: message.toolCallId, content: message.content };
+  }
+  if (message.role === "user" && message.attachments?.length) {
+    // The chat-completions dialect carries images as data URLs; it has no document part, so a
+    // document here is a configuration error, not something to drop silently.
+    const images = message.attachments.map((attachment) => {
+      if (attachment.type !== "image") {
+        throw new AgentBridgeError("AB-1005", {
+          message: "the chat-completions dialect carries images only; documents need Anthropic or Gemini",
+          details: { mimeType: attachment.mimeType },
+        });
+      }
+      return {
+        type: "image_url",
+        image_url: { url: `data:${attachment.mimeType};base64,${attachment.data}` },
+      };
+    });
+    return { role: "user", content: [...images, { type: "text", text: message.content }] };
   }
   return { role: message.role, content: message.content };
 }

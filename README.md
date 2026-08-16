@@ -241,8 +241,22 @@ replies **stream**: each text chunk arrives as a delta `message` event, with one
 closing the turn (so code that only handles whole messages keeps working). Every turn that
 reports token counts also emits a `usage` event naming the model that actually served it, and the
 session accumulates the totals in `session.info.usage`. Everything is configurable per instance —
-`baseUrl`, `apiKey`, `defaultModel`, `headers`, `maxToolRounds`, `requestTimeoutMs`, and
-`streaming` (on by default; set `streaming: false` for servers that reject it).
+`baseUrl`, `apiKey`, `defaultModel`, `headers`, `maxToolRounds`, `requestTimeoutMs`, `streaming`
+(on by default; set `streaming: false` for servers that reject it), and `retry`. Rate limits and
+transient failures (429/5xx/network) retry automatically with `Retry-After` honored and
+exponential backoff otherwise — tune or disable with `retry: { maxRetries, baseDelayMs, maxDelayMs }`.
+
+Images and documents ride the message and each adapter speaks its own wire format for them
+(Anthropic image/document blocks, Gemini `inlineData`, OpenAI-dialect data URLs):
+
+```typescript
+await session.send("what is in this screenshot?", {
+  attachments: [{ type: "image", data: pngBase64, mimeType: "image/png" }],
+});
+```
+
+An adapter that cannot carry an attachment rejects the turn with `AB-1005` instead of silently
+dropping it (the CLI adapters currently reject all attachments; use an API provider).
 
 Conversations can survive restarts too: give the provider a history store and `resume` turns on —
 the provider persists its replay state (its own wire conversation, not your UI transcript; that

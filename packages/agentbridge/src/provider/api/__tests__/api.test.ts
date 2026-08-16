@@ -415,6 +415,192 @@ describe("GeminiApiProvider (spec 12.5)", () => {
   });
 });
 
+describe("message attachments (spec 13.6)", () => {
+  const PNG = { type: "image" as const, data: "aGVsbG8=", mimeType: "image/png", name: "shot.png" };
+  const PDF = { type: "document" as const, data: "cGRm", mimeType: "application/pdf" };
+
+  it("openai dialect: images become data URLs alongside the text", async () => {
+    const endpoint = await fakeEndpoint([
+      () => ({ choices: [{ message: { content: "seen" } }] }),
+    ]);
+    try {
+      const provider = new OpenAICompatProvider({ baseUrl: endpoint.url, streaming: false });
+      const handle = await provider.start({ sessionId: "s1" });
+      await provider.send(handle, "what is this?", { emit: collector().emit, attachments: [PNG] });
+
+      const user = endpoint.bodies[0].messages.at(-1);
+      assert.deepEqual(user.content, [
+        { type: "image_url", image_url: { url: "data:image/png;base64,aGVsbG8=" } },
+        { type: "text", text: "what is this?" },
+      ]);
+    } finally {
+      await endpoint.close();
+    }
+  });
+
+  it("openai dialect: a document is refused as AB-1005, not dropped", async () => {
+    const endpoint = await fakeEndpoint([]);
+    try {
+      const provider = new OpenAICompatProvider({ baseUrl: endpoint.url, streaming: false });
+      const handle = await provider.start({ sessionId: "s1" });
+      await assert.rejects(
+        provider.send(handle, "read this", { emit: collector().emit, attachments: [PDF] }),
+        (error: any) => error.code === "AB-1005",
+      );
+      assert.equal(endpoint.bodies.length, 0, "nothing must go over the wire");
+    } finally {
+      await endpoint.close();
+    }
+  });
+
+  it("anthropic: image and document blocks precede the text in the user turn", async () => {
+    const endpoint = await fakeEndpoint([
+      () => ({ content: [{ type: "text", text: "seen" }] }),
+    ]);
+    try {
+      const provider = new AnthropicProvider({ apiKey: "k", baseUrl: endpoint.url, streaming: false });
+      const handle = await provider.start({ sessionId: "a1" });
+      await provider.send(handle, "look", { emit: collector().emit, attachments: [PNG, PDF] });
+
+      const user = endpoint.bodies[0].messages.at(-1);
+      assert.deepEqual(user.content, [
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" } },
+        { type: "document", source: { type: "base64", media_type: "application/pdf", data: "cGRm" } },
+        { type: "text", text: "look" },
+      ]);
+    } finally {
+      await endpoint.close();
+    }
+  });
+
+  it("gemini: attachments become inlineData parts", async () => {
+    const endpoint = await fakeEndpoint([
+      () => ({ candidates: [{ content: { parts: [{ text: "seen" }] } }] }),
+    ]);
+    try {
+      const provider = new GeminiApiProvider({ apiKey: "k", baseUrl: endpoint.url });
+      const handle = await provider.start({ sessionId: "g1" });
+      await provider.send(handle, "look", { emit: collector().emit, attachments: [PNG] });
+
+      assert.deepEqual(endpoint.bodies[0].contents.at(-1).parts, [
+        { inlineData: { mimeType: "image/png", data: "aGVsbG8=" } },
+        { text: "look" },
+      ]);
+    } finally {
+      await endpoint.close();
+    }
+  });
+
+  it("attachments survive in history and replay on the next turn", async () => {
+    const endpoint = await fakeEndpoint([
+      () => ({ choices: [{ message: { content: "first" } }] }),
+      () => ({ choices: [{ message: { content: "second" } }] }),
+    ]);
+    try {
+      const provider = new OpenAICompatProvider({ baseUrl: endpoint.url, streaming: false });
+      const handle = await provider.start({ sessionId: "s1" });
+      await provider.send(handle, "what is this?", { emit: collector().emit, attachments: [PNG] });
+      await provider.send(handle, "and now?", { emit: collector().emit });
+
+      const replayedUser = endpoint.bodies[1].messages.find((m: any) => Array.isArray(m.content));
+      assert.ok(replayedUser, "the image-bearing turn must replay with its image");
+      assert.equal(replayedUser.content[0].type, "image_url");
+    } finally {
+      await endpoint.close();
+    }
+  });
+});
+
+describe("API provider retry policy (spec 12.5)", () => {
+  /** A server that fails `failures` times with `status`, then succeeds. */
+  async function flakyEndpoint(failures: number, status: number, headers: Record<string, string> = {}) {
+    let requests = 0;
+    const server = createServer((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        requests += 1;
+        if (requests <= failures) {
+          res.writeHead(status, headers).end(JSON.stringify({ error: "try later" }));
+          return;
+        }
+        res.writeHead(200, { "content-type": "application/json" })
+          .end(JSON.stringify({ choices: [{ message: { content: "recovered" } }] }));
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    return {
+      url: `http://127.0.0.1:${port}`,
+      requests: () => requests,
+      close: () => new Promise((r) => server.close(() => r(null))),
+    };
+  }
+
+  it("retries a 429 honoring Retry-After and recovers", async () => {
+    const endpoint = await flakyEndpoint(2, 429, { "retry-after": "0" });
+    try {
+      const provider = new OpenAICompatProvider({ baseUrl: endpoint.url, streaming: false });
+      const handle = await provider.start({ sessionId: "s1" });
+      const { events, emit } = collector();
+      await provider.send(handle, "hi", { emit });
+
+      assert.equal(endpoint.requests(), 3, "two failures, then the success");
+      assert.equal((events[0] as any).content, "recovered");
+    } finally {
+      await endpoint.close();
+    }
+  });
+
+  it("retries a 503 on the streaming path before the first byte", async () => {
+    const endpoint = await flakyEndpoint(1, 503, { "retry-after": "0" });
+    try {
+      const provider = new OpenAICompatProvider({ baseUrl: endpoint.url });   // streaming on
+      const handle = await provider.start({ sessionId: "s1" });
+      const { events, emit } = collector();
+      await provider.send(handle, "hi", { emit });
+      assert.equal(endpoint.requests(), 2);
+      assert.equal((events.find((e) => e.type === "message") as any).content, "recovered");
+    } finally {
+      await endpoint.close();
+    }
+  });
+
+  it("does not retry a 400 - the request's own fault repeats identically", async () => {
+    const endpoint = await flakyEndpoint(5, 400);
+    try {
+      const provider = new OpenAICompatProvider({ baseUrl: endpoint.url, streaming: false });
+      const handle = await provider.start({ sessionId: "s1" });
+      await assert.rejects(
+        provider.send(handle, "hi", { emit: collector().emit }),
+        (error: any) => error.code === "AB-1006" && String(error.message).includes("400"),
+      );
+      assert.equal(endpoint.requests(), 1, "a 400 must not be retried");
+    } finally {
+      await endpoint.close();
+    }
+  });
+
+  it("maxRetries: 0 disables retrying entirely", async () => {
+    const endpoint = await flakyEndpoint(1, 429, { "retry-after": "0" });
+    try {
+      const provider = new OpenAICompatProvider({
+        baseUrl: endpoint.url,
+        streaming: false,
+        retry: { maxRetries: 0 },
+      });
+      const handle = await provider.start({ sessionId: "s1" });
+      await assert.rejects(
+        provider.send(handle, "hi", { emit: collector().emit }),
+        (error: any) => error.code === "AB-1006" && String(error.message).includes("429"),
+      );
+      assert.equal(endpoint.requests(), 1);
+    } finally {
+      await endpoint.close();
+    }
+  });
+});
+
 describe("API provider resume via FileHistoryStore (spec 12.5)", () => {
   it("declares resume only when a store is configured", async () => {
     const dir = await mkdtemp(join(tmpdir(), "agentbridge-history-"));

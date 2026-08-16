@@ -10,6 +10,24 @@ export type SessionStatus =
 
 export type PermissionMode = "ask" | "allow" | "deny";
 
+/**
+ * A binary payload accompanying one message (spec 13.6). Base64, because it must survive JSON
+ * transport (REST body, history files) unchanged. Which types a provider accepts is the
+ * adapter's business: API adapters map them onto their wire format, CLI adapters that cannot
+ * carry them reject with AB-1005 rather than silently dropping them.
+ */
+export interface MessageAttachment {
+  type: "image" | "document";
+  /** Base64-encoded bytes (no data: prefix). */
+  data: string;
+  mimeType: string;
+  name?: string;
+}
+
+export interface SendMessageOptions {
+  attachments?: MessageAttachment[];
+}
+
 export interface AgentSession {
   id: string;
   provider: string;

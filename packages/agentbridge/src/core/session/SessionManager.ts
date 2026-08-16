@@ -8,7 +8,7 @@ import type { Repository } from "../storage/Storage.js";
 import { SequenceCounter } from "../events/sequence.js";
 import type { AgentEvent, AgentEventPayload } from "../events/types.js";
 import { nextStatus, type SessionAction } from "./stateMachine.js";
-import type { AgentSession, CreateSessionOptions, SessionStatus } from "./types.js";
+import type { AgentSession, CreateSessionOptions, MessageAttachment, SendMessageOptions, SessionStatus } from "./types.js";
 
 /**
  * Minimal provider surface the session layer depends on.
@@ -30,7 +30,11 @@ export interface SessionProvider {
   send(
     handle: { sessionId: string; providerId: string; nativeSessionId?: string },
     message: string,
-    options: { emit: (payload: AgentEventPayload) => void; signal?: AbortSignal },
+    options: {
+      emit: (payload: AgentEventPayload) => void;
+      signal?: AbortSignal;
+      attachments?: MessageAttachment[];
+    },
   ): Promise<void>;
   interrupt(handle: { sessionId: string; providerId: string }): Promise<void>;
   stop(handle: { sessionId: string; providerId: string }): Promise<void>;
@@ -294,7 +298,7 @@ export class SessionManager {
    * Sends a message and resolves when the turn completes.
    * A send during a running turn waits for it unless queueing is disabled (spec 13.2).
    */
-  async send(sessionId: string, message: string): Promise<SendResult> {
+  async send(sessionId: string, message: string, options: SendMessageOptions = {}): Promise<SendResult> {
     const record = this.#require(sessionId);
 
     if (record.info.status === "stopped" || record.info.status === "error") {
@@ -313,7 +317,7 @@ export class SessionManager {
 
     const turnId = randomUUID();
     const controller = new AbortController();
-    const done = this.#runTurn(record, turnId, message, controller);
+    const done = this.#runTurn(record, turnId, message, controller, options);
     record.turn = { id: turnId, controller, done };
 
     try {
@@ -461,6 +465,7 @@ export class SessionManager {
     turnId: string,
     message: string,
     controller: AbortController,
+    options: SendMessageOptions = {},
   ): Promise<void> {
     this.#transition(record, "send");
 
@@ -471,7 +476,11 @@ export class SessionManager {
     try {
       await this.#providers
         .get(record.info.provider)
-        .send(record.handle, message, { emit, signal: controller.signal });
+        .send(record.handle, message, {
+          emit,
+          signal: controller.signal,
+          ...(options.attachments?.length ? { attachments: options.attachments } : {}),
+        });
       this.#transition(record, controller.signal.aborted ? "interrupt" : "turn_end");
     } catch (error) {
       const info =

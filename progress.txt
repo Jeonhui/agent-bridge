@@ -855,3 +855,24 @@ API provider resume and the Anthropic adapter (0.4.0).
   OpenAI and Anthropic adapters.
 
 Tests: 330 passing.
+
+--- 2026-08-16 (6) ---
+Retry/backoff and message attachments (0.5.0).
+
+- Retry policy for API providers: HTTP 429/5xx and network failures back off and try again -
+  Retry-After honored (seconds or date, capped), exponential with jitter otherwise, defaults 2
+  retries / 500ms base / 10s cap, configurable or disabled per instance via retry: {...}. Other
+  4xx fail immediately: they are the request's own fault and would repeat identically. Streamed
+  requests retry only until the first byte arrives (later would duplicate deltas), and backoff
+  aborts promptly when the turn is interrupted. The backoff timer is deliberately not unref'd -
+  it alone settles the sleep promise.
+
+- Message attachments (new spec 13.6): send(message, {attachments: [{type: image|document,
+  data (base64), mimeType, name?}]}) through the whole stack - core, REST body, both SDK
+  backends. Each adapter maps to its wire format: Anthropic image/document blocks, Gemini
+  inlineData parts, OpenAI-dialect image_url data URLs (images only - a document there is
+  AB-1005, refused before anything goes over the wire, never dropped silently). CLI adapters
+  reject attachments with AB-1005 until a CLI path is verified end to end. Attachments live in
+  the replay history, so a resumed session replays them - proven by test.
+
+Tests: 339 passing.

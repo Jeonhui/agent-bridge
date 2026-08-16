@@ -6,6 +6,7 @@ import type {
   AgentSession,
   CreateSessionInput,
   CreateSessionOptions,
+  SendMessageOptions,
   SessionStatus,
   ToolCallResult,
   ToolDescriptor,
@@ -20,6 +21,7 @@ export type {
   AgentSession,
   CreateSessionInput,
   CreateSessionOptions,
+  SendMessageOptions,
   SessionStatus,
   ToolCallResult,
   ToolDescriptor,
@@ -45,7 +47,7 @@ export interface SendResult {
 export interface ClientSession {
   readonly id: string;
   info(): Promise<AgentSession>;
-  send(message: string): Promise<SendResult>;
+  send(message: string, options?: SendMessageOptions): Promise<SendResult>;
   interrupt(): Promise<void>;
   stop(): Promise<void>;
   updateMcp(serverIds: string[]): Promise<AgentSession>;

@@ -11,6 +11,8 @@ export interface GeminiApiOptions {
   requestTimeoutMs?: number;
   /** History persistence; setting it turns `capabilities.resume` on. See FileHistoryStore. */
   history?: import("./history.js").ApiHistoryStore;
+  /** Retry policy for 429/5xx/network failures. Defaults: 2 retries, 500ms base, 10s cap. */
+  retry?: import("./base.js").RetryPolicy;
 }
 
 /**
@@ -32,6 +34,7 @@ export class GeminiApiProvider extends ApiProviderBase {
       name: "Gemini API",
       defaultModel: options.defaultModel ?? "gemini-2.0-flash",
       ...(options.history ? { history: options.history } : {}),
+      ...(options.retry ? { retry: options.retry } : {}),
       ...(options.maxToolRounds !== undefined ? { maxToolRounds: options.maxToolRounds } : {}),
       ...(options.requestTimeoutMs !== undefined ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
     });
@@ -85,6 +88,7 @@ export class GeminiApiProvider extends ApiProviderBase {
         signal: request.signal,
       },
       this.id,
+      this.retry,
     )) as {
       modelVersion?: string;
       usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number };
@@ -154,7 +158,11 @@ function toContent(message: ApiMessage, wireNames: Map<string, string>): Record<
       }],
     };
   }
-  return { role: "user", parts: [{ text: message.content }] };
+  const parts: unknown[] = (message.attachments ?? []).map((attachment) => ({
+    inlineData: { mimeType: attachment.mimeType, data: attachment.data },
+  }));
+  parts.push({ text: message.content });
+  return { role: "user", parts };
 }
 
 /** The declaration sanitizer; functionResponse parts must reproduce it exactly. */

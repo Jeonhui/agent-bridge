@@ -110,6 +110,11 @@ export interface SendOptions {
   emit: ProviderEmit;
   /** Aborts the turn. Adapters must stop their process when this fires (spec 25.5). */
   signal?: AbortSignal;
+  /**
+   * Binary payloads accompanying the message (spec 13.6). An adapter that cannot carry them
+   * must throw AB-1005 rather than silently dropping them.
+   */
+  attachments?: Array<{ type: "image" | "document"; data: string; mimeType: string; name?: string }>;
 }
 
 /**

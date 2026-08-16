@@ -8,6 +8,8 @@ export { SequenceCounter } from "./events/sequence.js";
 export type {
   AgentSession,
   CreateSessionOptions,
+  MessageAttachment,
+  SendMessageOptions,
   PermissionMode,
   SessionStatus,
 } from "./session/types.js";

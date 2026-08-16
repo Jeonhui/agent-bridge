@@ -24,6 +24,8 @@ export interface AnthropicOptions {
   streaming?: boolean;
   /** History persistence; setting it turns `capabilities.resume` on. See FileHistoryStore. */
   history?: ApiHistoryStore;
+  /** Retry policy for 429/5xx/network failures. Defaults: 2 retries, 500ms base, 10s cap. */
+  retry?: import("./base.js").RetryPolicy;
 }
 
 interface WireBlock {
@@ -58,6 +60,7 @@ export class AnthropicProvider extends ApiProviderBase {
       defaultModel: options.defaultModel ?? "claude-sonnet-4-5",
       streaming: options.streaming ?? true,
       ...(options.history ? { history: options.history } : {}),
+      ...(options.retry ? { retry: options.retry } : {}),
       ...(options.maxToolRounds !== undefined ? { maxToolRounds: options.maxToolRounds } : {}),
       ...(options.requestTimeoutMs !== undefined ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
     });
@@ -115,12 +118,12 @@ export class AnthropicProvider extends ApiProviderBase {
 
     if (streaming) {
       const collected = new MessageCollector(request.onDelta!);
-      const plainJson = await apiFetchSse(url, init, this.id, (event) => collected.take(event as never));
+      const plainJson = await apiFetchSse(url, init, this.id, (event) => collected.take(event as never), this.retry);
       if (plainJson === undefined) return collected.result(wireNames);
       return parseResponse(plainJson as WireResponse, wireNames);
     }
 
-    const json = (await apiFetch(url, init, this.id)) as WireResponse;
+    const json = (await apiFetch(url, init, this.id, this.retry)) as WireResponse;
     return parseResponse(json, wireNames);
   }
 }
@@ -169,7 +172,15 @@ function toWireMessages(messages: ApiMessage[], wireNames: Map<string, string>):
   for (const message of messages) {
     if (message.role === "system") continue;   // carried in the top-level `system` field
     if (message.role === "user") {
-      push("user", [{ type: "text", text: message.content }]);
+      const content: unknown[] = [];
+      for (const attachment of message.attachments ?? []) {
+        content.push({
+          type: attachment.type === "image" ? "image" : "document",
+          source: { type: "base64", media_type: attachment.mimeType, data: attachment.data },
+        });
+      }
+      content.push({ type: "text", text: message.content });
+      push("user", content);
     } else if (message.role === "assistant") {
       const content: unknown[] = [];
       if (message.content) content.push({ type: "text", text: message.content });

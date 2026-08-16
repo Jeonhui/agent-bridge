@@ -92,7 +92,7 @@ export class EmbeddedClient implements AgentBridgeClient {
     return {
       id: sessionId,
       info: async () => session.info,
-      send: async (message: string): Promise<SendResult> => session.send(message),
+      send: async (message, options) => session.send(message, options),
       interrupt: () => session.interrupt(),
       stop: () => session.stop(),
       updateMcp: (serverIds: string[]) => session.updateMcp(serverIds),

@@ -223,11 +223,16 @@ export class RuntimeServer {
     }));
 
     route("POST", "/sessions/:id/messages", async ({ params, body }) => {
-      const { message } = (body ?? {}) as { message?: string };
+      const { message, attachments } = (body ?? {}) as {
+        message?: string;
+        attachments?: Array<{ type: "image" | "document"; data: string; mimeType: string; name?: string }>;
+      };
       if (typeof message !== "string" || message.length === 0) {
         throw new AgentBridgeError("AB-5004", { message: "message is required" });
       }
-      const result = await this.#agent.sessions.get(params["id"]!).send(message);
+      const result = await this.#agent.sessions
+        .get(params["id"]!)
+        .send(message, attachments?.length ? { attachments } : {});
       return { status: 202, body: result };
     });
 

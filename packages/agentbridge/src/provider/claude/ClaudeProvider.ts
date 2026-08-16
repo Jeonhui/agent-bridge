@@ -99,8 +99,14 @@ export class ClaudeProvider implements AgentProvider {
   async send(
     handle: ProviderSessionHandle,
     message: string,
-    { emit, signal }: SendOptions,
+    { emit, signal, attachments }: SendOptions,
   ): Promise<void> {
+    if (attachments?.length) {
+      throw new AgentBridgeError("AB-1005", {
+        message: "the claude CLI adapter does not carry attachments; use an API provider",
+        details: { providerId: "claude" },
+      });
+    }
     const session = this.#sessions.get(handle.sessionId);
     if (!session) {
       throw new AgentBridgeError("AB-3004", { details: { sessionId: handle.sessionId } });
