@@ -13,6 +13,11 @@ export interface AgentBridgeConfig {
   approvalTimeoutMs?: number;
   eventRetentionPerSession?: number;
   workingDirectory?: string;
+  /**
+   * How deep agent-calls-agent chains may go (spec 12.6). The host's own call is depth 0;
+   * the default of 2 lets an agent consult another agent, but not recurse further.
+   */
+  maxAgentCallDepth?: number;
   /** Defaults to MemoryStorage, which suits a library embedded in an application (spec 20.2). */
   storage?: Storage<Identified, Identified, Identified>;
   /** Defaults to a logger at `logLevel` writing structured records to stderr. */
@@ -38,5 +43,6 @@ export function resolveConfig(config: AgentBridgeConfig = {}): ResolvedConfig {
     approvalTimeoutMs: config.approvalTimeoutMs ?? 120_000,
     eventRetentionPerSession: config.eventRetentionPerSession ?? 1000,
     workingDirectory: config.workingDirectory ?? process.cwd(),
+    maxAgentCallDepth: config.maxAgentCallDepth ?? 2,
   };
 }

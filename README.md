@@ -239,6 +239,42 @@ starts fresh. Writing your own is two methods: extend `ApiProviderBase` and impl
 plus `complete()` (one request/response in your wire format); the loop, history, abort handling,
 and permission flow are inherited.
 
+### Name your agents — and let them call each other
+
+If you keep assembling the same provider + model + role + tools, declare it once:
+
+```typescript
+agent.agents.define({
+  id: "reviewer",
+  name: "Code Reviewer",
+  description: "Reviews code for correctness and style.",
+  role: "You are a strict but fair code reviewer. Point at lines, not vibes.",
+  provider: "claude",
+  model: "sonnet",
+  mcp: ["filesystem"],
+});
+
+const session = await agent.sessions.create({ agent: "reviewer" });   // overrides allowed
+```
+
+Every defined agent is also a **tool**: `agent:reviewer:ask` (shown to models as
+`ask_reviewer`, input `{ message }`). Any other agent — a CLI session via the AgentBridge MCP
+server, an API provider through its tool loop, or your own code — can call it and gets back the
+reviewer's reply:
+
+```typescript
+const result = await agent.tools.call("agent:reviewer:ask", {
+  message: "Review the diff in src/auth.ts",
+});
+// → { agent: "reviewer", sessionId: "…", reply: "…" }
+```
+
+Agent-to-agent calls run through the same permission system as every other tool (class
+`EXECUTE`), so ask-mode and policy rules decide before anything runs. Chains are depth-capped
+(`maxAgentCallDepth`, default 2), so two agents can consult each other without recursing forever.
+By default each call is a fresh conversation; set `memory: "persistent"` on the definition to
+keep one session that remembers across calls.
+
 ### Use it from a web page
 
 The runtime itself is Node-only — it spawns CLI processes and reads the OS keychain, which no

@@ -6,7 +6,16 @@ import type { Identified, Storage } from "../storage/Storage.js";
 import type { AgentEventOf, AgentEventType, Unsubscribe } from "../events/types.js";
 import { SessionManager, type SessionProvider, type SendResult } from "../session/SessionManager.js";
 import type { AgentSession, CreateSessionOptions, SessionStatus } from "../session/types.js";
+import { AgentDirectory, type AgentDefinition } from "./AgentDirectory.js";
 import { resolveConfig, type AgentBridgeConfig, type ResolvedConfig } from "./config.js";
+
+/**
+ * `sessions.create` input: either the full options, or an agent definition's id with
+ * per-session overrides on top (spec 12.6). With `agent`, everything else is optional.
+ */
+export type CreateSessionInput =
+  | CreateSessionOptions
+  | (Partial<CreateSessionOptions> & { agent: string });
 
 export interface ProviderRegistration extends SessionProvider {
   readonly name: string;
@@ -121,6 +130,11 @@ export class AgentBridge {
   readonly #sessionManager: SessionManager;
   readonly #storage: Storage<Identified, Identified, Identified>;
   readonly #logger: Logger;
+  readonly #agentDirectory = new AgentDirectory();
+  /** sessionId -> how many agent-calls-agent hops led here. Host-created sessions are depth 0. */
+  readonly #agentDepth = new Map<string, number>();
+  /** definitionId -> live sessionId, for definitions with memory: "persistent". */
+  readonly #agentSessions = new Map<string, string>();
   #mcp: McpBinding | undefined;
   #permissions: PermissionBinding | undefined;
   #started = false;
@@ -211,8 +225,22 @@ export class AgentBridge {
   async stop(): Promise<void> {
     await this.#sessionManager.stopAll();
     await this.#mcp?.closeAll?.();
+    this.#agentDepth.clear();
+    this.#agentSessions.clear();
     this.#started = false;
   }
+
+  /**
+   * Named agent definitions (spec 12.6): declare provider, model, role, and tool bindings once,
+   * then create sessions by name — and let other agents call the definition as a tool.
+   * Definitions live in code like provider registrations; they are not persisted.
+   */
+  readonly agents = {
+    define: (definition: AgentDefinition): AgentDefinition => this.#agentDirectory.define(definition),
+    list: (): AgentDefinition[] => this.#agentDirectory.list(),
+    get: (id: string): AgentDefinition => this.#agentDirectory.get(id),
+    remove: (id: string): void => this.#agentDirectory.remove(id),
+  };
 
   readonly providers = {
     list: async (): Promise<
@@ -241,9 +269,13 @@ export class AgentBridge {
   };
 
   readonly sessions = {
-    create: async (options: CreateSessionOptions): Promise<Session> => {
+    create: async (options: CreateSessionInput): Promise<Session> => {
       this.#requireStarted();
-      const info = await this.#sessionManager.create(options);
+      const resolved =
+        "agent" in options && options.agent
+          ? this.#optionsFromDefinition(this.#agentDirectory.get(options.agent), options)
+          : (options as CreateSessionOptions);
+      const info = await this.#sessionManager.create(resolved);
       return this.#facade(info.id);
     },
     get: (sessionId: string): Session => this.#facade(sessionId),
@@ -265,21 +297,32 @@ export class AgentBridge {
     stop: async (sessionId: string): Promise<void> => {
       await this.#sessionManager.stop(sessionId);
       this.#permissions?.cancelSession(sessionId, "the session was stopped");
+      this.#agentDepth.delete(sessionId);
     },
   };
 
   readonly tools = {
     list: (filter?: { sessionId?: string; server?: string }): ToolDescriptor[] => {
-      const mcp = this.#requireMcp();
-      if (!filter?.sessionId) return mcp.listTools(filter);
+      // A server filter is an MCP concept, so agent tools stay out of a server-scoped list.
+      const agentTools = filter?.server ? [] : this.#agentTools();
+      if (!this.#mcp) {
+        if (this.#agentDirectory.size === 0) this.#requireMcp();
+        return agentTools;
+      }
+
+      if (!filter?.sessionId) return [...this.#mcp.listTools(filter), ...agentTools];
 
       const bound = new Set(this.#sessionManager.get(filter.sessionId).mcpServers);
-      return mcp
+      const mcpTools = this.#mcp
         .listTools()
         .filter((tool) => tool.source.type !== "mcp" || bound.has(tool.source.server ?? ""));
+      return [...mcpTools, ...agentTools];
     },
 
-    get: (toolId: string): ToolDescriptor => this.#requireMcp().getTool(toolId),
+    get: (toolId: string): ToolDescriptor => {
+      const definition = this.#agentToolTarget(toolId);
+      return definition ? agentToolDescriptor(definition) : this.#requireMcp().getTool(toolId);
+    },
 
     /**
      * Runs a tool after checking policy. A denied call resolves with ok:false rather than
@@ -287,8 +330,8 @@ export class AgentBridge {
      */
     call: async (toolId: string, args: unknown, options: ToolCallOptions = {}): Promise<ToolCallResult> => {
       const started = Date.now();
-      const mcp = this.#requireMcp();
-      const tool = mcp.getTool(toolId);
+      const definition = this.#agentToolTarget(toolId);
+      const tool = definition ? agentToolDescriptor(definition) : this.#requireMcp().getTool(toolId);
 
       if (this.#permissions) {
         const session = options.sessionId ? this.#sessionManager.get(options.sessionId) : undefined;
@@ -315,7 +358,9 @@ export class AgentBridge {
       }
 
       try {
-        const content = await mcp.callTool(toolId, args, options.timeoutMs);
+        const content = definition
+          ? await this.#callAgent(definition, args, options.sessionId)
+          : await this.#requireMcp().callTool(toolId, args, options.timeoutMs);
         return { toolId, ok: true, content, durationMs: Date.now() - started };
       } catch (error) {
         const info =
@@ -373,6 +418,119 @@ export class AgentBridge {
     };
   }
 
+  #agentTools(): ToolDescriptor[] {
+    return this.#agentDirectory
+      .list()
+      .filter((definition) => definition.callable !== false)
+      .map(agentToolDescriptor);
+  }
+
+  #agentToolTarget(toolId: string): AgentDefinition | undefined {
+    const match = /^agent:(.+):ask$/.exec(toolId);
+    if (!match || !this.#agentDirectory.has(match[1]!)) return undefined;
+    return this.#agentDirectory.get(match[1]!);
+  }
+
+  #optionsFromDefinition(
+    definition: AgentDefinition,
+    overrides: Partial<CreateSessionOptions> = {},
+  ): CreateSessionOptions {
+    const model = overrides.model ?? definition.model;
+    const systemPrompt = overrides.systemPrompt ?? definition.role;
+    const mcp = overrides.mcp ?? definition.mcp;
+    const permissionMode = overrides.permissionMode ?? definition.permissionMode;
+    const workingDirectory = overrides.workingDirectory ?? definition.workingDirectory;
+    const env = overrides.env ?? definition.env;
+    return {
+      provider: overrides.provider ?? definition.provider,
+      title: overrides.title ?? definition.name,
+      ...(model ? { model } : {}),
+      ...(systemPrompt ? { systemPrompt } : {}),
+      ...(mcp ? { mcp } : {}),
+      ...(permissionMode ? { permissionMode } : {}),
+      ...(workingDirectory ? { workingDirectory } : {}),
+      ...(env ? { env } : {}),
+      ...(overrides.queueing !== undefined ? { queueing: overrides.queueing } : {}),
+    };
+  }
+
+  /**
+   * Executes one agent-as-tool call (spec 12.6): run the definition's session, deliver the
+   * message, and return the assistant's reply as the tool result. Depth is counted per session
+   * chain so an agent can consult another agent without the chain recursing unboundedly.
+   */
+  async #callAgent(
+    definition: AgentDefinition,
+    args: unknown,
+    callerSessionId: string | undefined,
+  ): Promise<unknown> {
+    const message =
+      typeof args === "object" && args !== null && typeof (args as { message?: unknown }).message === "string"
+        ? ((args as { message: string }).message)
+        : "";
+    if (!message) {
+      throw new AgentBridgeError("AB-2203", {
+        message: `the agent tool for "${definition.id}" requires a "message" string argument`,
+        details: { agentId: definition.id },
+      });
+    }
+
+    const depth = (callerSessionId ? this.#agentDepth.get(callerSessionId) ?? 0 : 0) + 1;
+    if (depth > this.#config.maxAgentCallDepth) {
+      throw new AgentBridgeError("AB-1009", {
+        message: `agent call depth ${depth} exceeds the limit of ${this.#config.maxAgentCallDepth}`,
+        details: { agentId: definition.id, depth, limit: this.#config.maxAgentCallDepth },
+      });
+    }
+
+    const oneshot = (definition.memory ?? "oneshot") === "oneshot";
+    const sessionId = await this.#agentSessionFor(definition, depth);
+
+    // The reply is whatever the assistant says over the turn; deltas accumulate, a full
+    // message replaces. Subscribing before send() means nothing can slip past.
+    let reply = "";
+    const unsubscribe = this.#events.onSession(sessionId, "message", (event) => {
+      if (event.role !== "assistant") return;
+      reply = event.delta ? reply + event.content : event.content;
+    });
+
+    try {
+      await this.#sessionManager.send(sessionId, message);
+      return { agent: definition.id, sessionId, reply };
+    } finally {
+      unsubscribe();
+      if (oneshot) {
+        await this.#sessionManager.stop(sessionId).catch(() => {});
+        this.#agentDepth.delete(sessionId);
+      }
+    }
+  }
+
+  async #agentSessionFor(definition: AgentDefinition, depth: number): Promise<string> {
+    if ((definition.memory ?? "oneshot") === "persistent") {
+      const existing = this.#agentSessions.get(definition.id);
+      if (existing) {
+        try {
+          const status = this.#sessionManager.get(existing).status;
+          if (status !== "stopped" && status !== "error") {
+            // The deepest caller wins, so a chain through a shared session still hits the cap.
+            this.#agentDepth.set(existing, Math.max(depth, this.#agentDepth.get(existing) ?? 0));
+            return existing;
+          }
+        } catch {
+          // The session is gone; fall through and recreate it.
+        }
+      }
+    }
+
+    const info = await this.#sessionManager.create(this.#optionsFromDefinition(definition));
+    this.#agentDepth.set(info.id, depth);
+    if ((definition.memory ?? "oneshot") === "persistent") {
+      this.#agentSessions.set(definition.id, info.id);
+    }
+    return info.id;
+  }
+
   #requireMcp(): McpBinding {
     if (!this.#mcp) {
       throw new AgentBridgeError("AB-2003", { message: "no MCP manager is attached" });
@@ -407,4 +565,25 @@ export class AgentBridge {
       throw new AgentBridgeError("AB-5005", { message: "call start() before creating sessions" });
     }
   }
+}
+
+/**
+ * The tool face of an agent definition (spec 12.6). EXECUTE, because calling an agent runs
+ * whatever that agent runs — its own tool calls are then policy-checked individually.
+ */
+function agentToolDescriptor(definition: AgentDefinition): ToolDescriptor & { inputSchema: unknown } {
+  return {
+    id: `agent:${definition.id}:ask`,
+    name: `ask_${definition.id}`,
+    description: `Ask the "${definition.name}" agent. ${definition.description}`,
+    source: { type: "agent", server: definition.id },
+    permissions: ["EXECUTE"],
+    inputSchema: {
+      type: "object",
+      properties: {
+        message: { type: "string", description: `What to ask the "${definition.name}" agent.` },
+      },
+      required: ["message"],
+    },
+  };
 }

@@ -6,7 +6,7 @@ import { ERROR_CODES, isErrorCode, type ErrorCode } from "../errors/codes.js";
 
 describe("error codes (spec 18.2)", () => {
   it("defines the same number of codes as the spec table", () => {
-    assert.equal(Object.keys(ERROR_CODES).length, 40);
+    assert.equal(Object.keys(ERROR_CODES).length, 42);
   });
 
   it("every code matches AB-#### and carries a message", () => {

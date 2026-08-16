@@ -694,6 +694,57 @@ Shipped implementations:
 | `LiteLLMProvider` | `/api` | Same dialect | Defaults filled in: `http://127.0.0.1:4000/v1`, `LITELLM_BASE_URL` / `LITELLM_API_KEY` |
 | `GeminiApiProvider` | `/api` | `generateContent` REST | How Gemini returns after the CLI retired (33.2); takes the same `GEMINI_API_KEY` |
 
+### 12.6 Agent definitions and agents as tools
+
+A host that always assembles the same provider, model, role, and tool bindings at
+`sessions.create` can declare them once under a name instead. Definitions live in code like
+provider registrations — the host re-declares them at startup, so nothing is persisted and
+nothing drifts from the code that owns them. (MUST)
+
+```typescript
+export interface AgentDefinition {
+  id: string;                    // "reviewer" — also names the tool other agents call
+  name: string;                  // display name; becomes the session title
+  description: string;           // what other agents read when deciding to call this one
+  role?: string;                 // injected as the system prompt
+  provider: string;
+  model?: string;
+  mcp?: string[];
+  permissionMode?: PermissionMode;
+  workingDirectory?: string;
+  env?: Record<string, string>;
+  memory?: "oneshot" | "persistent";   // default "oneshot"
+  callable?: boolean;                  // expose as a tool; default true
+}
+
+agent.agents.define(definition);       // upsert — startup code is the source of truth
+agent.agents.list() / get(id) / remove(id);
+
+// Create a session by name; explicit options override the definition.
+const session = await agent.sessions.create({ agent: "reviewer", model: "haiku" });
+```
+
+Every callable definition also appears in the tool registry as `agent:{id}:ask` (name
+`ask_{id}`, permission class EXECUTE, input `{ message: string }`). Calling it runs the
+definition's session, delivers the message, and returns
+`{ agent, sessionId, reply }` — so one agent can consult another exactly the way it calls any
+other tool, and the call is policy-checked like any other tool call. (MUST)
+
+Rules:
+
+- The call executes through `tools.call`, so permission rules, ask-mode approval, and the audit
+  trail apply before any session is created. (MUST)
+- `memory: "oneshot"` starts a fresh conversation per call and stops the session after the
+  reply; `"persistent"` keeps one session per definition so the conversation accumulates. (MUST)
+- Chains are depth-capped by `maxAgentCallDepth` (default 2, host calls are depth 0); exceeding
+  it is `AB-1009`, returned to the calling model as a tool result rather than killing its turn.
+  (MUST)
+- Reach: API providers (12.5) see agent tools through the session tool executor; the host calls
+  them directly; CLI agents reach them through the AgentBridge MCP server (23), which routes
+  through the same `tools.call`. (MUST)
+- Malformed or unknown definitions are `AB-1008`. Ids must match `[a-z0-9][a-z0-9_-]*` because
+  they become tool names. (MUST)
+
 ---
 
 ## 13. Session specification
@@ -822,6 +873,7 @@ export interface AgentBridgeConfig {
   providers?: Record<string, ProviderConfig>;
   mcpServers?: McpServerConfig[];              // registered at startup
   workingDirectory?: string;
+  maxAgentCallDepth?: number;                  // defaults to 2 (12.6)
 }
 ```
 
@@ -850,12 +902,17 @@ interface ProviderInfo {
 
 ```typescript
 interface SessionsApi {
-  create(options: CreateSessionOptions): Promise<Session>;
+  create(options: CreateSessionInput): Promise<Session>;
   get(sessionId: string): Promise<Session | undefined>;
   list(filter?: SessionFilter): Promise<AgentSession[]>;
   stop(sessionId: string): Promise<void>;
   resume(sessionId: string): Promise<Session>;
 }
+
+/** Full options, or an agent definition's id plus overrides (12.6). */
+type CreateSessionInput =
+  | CreateSessionOptions
+  | (Partial<CreateSessionOptions> & { agent: string });
 
 interface CreateSessionOptions {
   provider: string;
@@ -989,6 +1046,7 @@ AgentBridge
 ├── start() / stop()
 ├── providers  → list() / detect() / register() / get()
 ├── sessions   → create() / get() / list() / stop() / resume()
+├── agents     → define() / list() / get() / remove()           # spec 12.6
 ├── mcp        → add() / remove() / connect() / disconnect() / reload() / list() / get()
 ├── tools      → list() / get() / call() / permissions()
 ├── permissions→ approve() / deny() / pending() / setPolicy() / listPolicies()
@@ -1167,7 +1225,7 @@ off();   // unsubscribe
 | 2 | GET | `/providers` | – | `{ items: ProviderInfo[] }` | 500 |
 | 3 | POST | `/providers/detect` | `{ id? }` | `{ items: ProviderInfo[] }` | 500 |
 | 4 | GET | `/sessions` | – (query `provider`,`status`,`limit`,`cursor`) | `{ items: AgentSession[], nextCursor }` | – |
-| 5 | POST | `/sessions` | `CreateSessionOptions` | 201 `AgentSession` | 400 `AB-3001`/`AB-3005`, 404 `AB-1002`, 502 `AB-1003` |
+| 5 | POST | `/sessions` | `CreateSessionInput` (`provider` or `agent`) | 201 `AgentSession` | 400 `AB-3001`/`AB-3005`, 404 `AB-1002`/`AB-1008`, 502 `AB-1003` |
 | 6 | GET | `/sessions/:id` | – | `AgentSession` | 404 `AB-3004` |
 | 7 | POST | `/sessions/:id/messages` | `{ message, attachments?, timeoutMs? }` | 202 `{ turnId, queued }` | 404 `AB-3004`, 409 `AB-3002` |
 | 8 | POST | `/sessions/:id/interrupt` | – | 204 | 404, 409 `AB-3006` |
@@ -1184,14 +1242,18 @@ off();   // unsubscribe
 | 19 | POST | `/mcp/:id/connect` | – | 200 `McpServerState` | 404, 502 `AB-2101` |
 | 20 | POST | `/mcp/:id/disconnect` | – | 204 | 404 |
 | 21 | POST | `/mcp/:id/reload` | – | 200 `McpReloadResult` | 404, 502 `AB-2102` |
-| 22 | GET | `/tools` | – (query `sessionId`,`source`,`server`) | `{ items: AgentTool[] }` | – |
-| 23 | GET | `/tools/:id` | – | `AgentTool` | 404 `AB-2201` |
-| 24 | POST | `/tools/:id/call` | `{ arguments, sessionId?, timeoutMs? }` | 200 `ToolCallResult` | 403 `AB-4001`, 408 `AB-4003`, 502 `AB-2202` |
-| 25 | GET | `/permissions/pending` | – (query `sessionId`) | `{ items: ApprovalRequest[] }` | – |
-| 26 | POST | `/permissions/:requestId/approve` | `{ remember? }` | 204 | 404 `AB-4002`, 409 (already decided) |
-| 27 | POST | `/permissions/:requestId/deny` | `{ reason? }` | 204 | 404, 409 |
-| 28 | GET | `/permissions/policies` | – | `{ items: PermissionRule[] }` | – |
-| 29 | PUT | `/permissions/policies` | `PermissionRule` | 200 `PermissionRule` | 400 |
+| 22 | GET | `/agents` | – | `{ items: AgentDefinition[] }` | – |
+| 23 | POST | `/agents` | `AgentDefinition` | 201 `AgentDefinition` | 400 `AB-1008` |
+| 24 | GET | `/agents/:id` | – | `AgentDefinition` | 404 `AB-1008` |
+| 25 | DELETE | `/agents/:id` | – | 204 | 404 `AB-1008` |
+| 26 | GET | `/tools` | – (query `sessionId`,`source`,`server`) | `{ items: AgentTool[] }` | – |
+| 27 | GET | `/tools/:id` | – | `AgentTool` | 404 `AB-2201` |
+| 28 | POST | `/tools/:id/call` | `{ arguments, sessionId?, timeoutMs? }` | 200 `ToolCallResult` | 403 `AB-4001`, 408 `AB-4003`, 502 `AB-2202` |
+| 29 | GET | `/permissions/pending` | – (query `sessionId`) | `{ items: ApprovalRequest[] }` | – |
+| 30 | POST | `/permissions/:requestId/approve` | `{ remember? }` | 204 | 404 `AB-4002`, 409 (already decided) |
+| 31 | POST | `/permissions/:requestId/deny` | `{ reason? }` | 204 | 404, 409 |
+| 32 | GET | `/permissions/policies` | – | `{ items: PermissionRule[] }` | – |
+| 33 | PUT | `/permissions/policies` | `PermissionRule` | 200 `PermissionRule` | 400 |
 
 The mapping to the SDK is 1:1 with a single exception: `providers.register()`. Registering a custom provider requires injecting code, so it is not exposed over REST. To use a custom provider with the runtime, load the adapter package when the runtime starts. (MUST)
 
@@ -1322,6 +1384,8 @@ Codes take the form `AB-<domain><number>`.
 | AB-1005 | Provider does not support the requested capability | No | Inspect `capabilities` and take an alternative path |
 | AB-1006 | Provider process exited unexpectedly | Yes | Try `resume` on the session |
 | AB-1007 | Duplicate provider id at registration | No | Register the custom adapter under a different id |
+| AB-1008 | Unknown or invalid agent definition | No | Define the agent with `agents.define()` before referring to it |
+| AB-1009 | Agent call depth limit exceeded | No | Flatten the agent chain or raise `maxAgentCallDepth` |
 | AB-2001 | MCP configuration validation failed | No | Check the transport's required fields |
 | AB-2002 | Duplicate MCP server id | No | Use a different id |
 | AB-2003 | MCP server not found | No | Check `mcp.list()` |

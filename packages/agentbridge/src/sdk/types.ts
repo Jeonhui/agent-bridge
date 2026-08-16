@@ -1,8 +1,10 @@
 import type {
+  AgentDefinition,
   AgentEvent,
   AgentEventOf,
   AgentEventType,
   AgentSession,
+  CreateSessionInput,
   CreateSessionOptions,
   SessionStatus,
   ToolCallResult,
@@ -11,10 +13,12 @@ import type {
 } from "../core/index.js";
 
 export type {
+  AgentDefinition,
   AgentEvent,
   AgentEventOf,
   AgentEventType,
   AgentSession,
+  CreateSessionInput,
   CreateSessionOptions,
   SessionStatus,
   ToolCallResult,
@@ -64,10 +68,17 @@ export interface AgentBridgeClient {
   };
 
   sessions: {
-    create(options: CreateSessionOptions): Promise<ClientSession>;
+    create(options: CreateSessionInput): Promise<ClientSession>;
     get(sessionId: string): ClientSession;
     list(filter?: { provider?: string; status?: SessionStatus }): Promise<AgentSession[]>;
     resume(sessionId: string): Promise<ClientSession>;
+  };
+
+  agents: {
+    define(definition: AgentDefinition): Promise<AgentDefinition>;
+    list(): Promise<AgentDefinition[]>;
+    get(id: string): Promise<AgentDefinition>;
+    remove(id: string): Promise<void>;
   };
 
   mcp: {

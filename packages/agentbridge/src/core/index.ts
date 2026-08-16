@@ -28,6 +28,7 @@ export {
 
 export {
   AgentBridge,
+  type CreateSessionInput,
   type McpBinding,
   type PermissionBinding,
   type ProviderRegistration,
@@ -36,6 +37,7 @@ export {
   type ToolCallResult,
   type ToolDescriptor,
 } from "./agent/AgentBridge.js";
+export { AgentDirectory, type AgentDefinition } from "./agent/AgentDirectory.js";
 export { resolveConfig, type AgentBridgeConfig, type ResolvedConfig } from "./agent/config.js";
 
 export type { AuditRecord, Identified, Repository, Storage } from "./storage/Storage.js";

@@ -773,3 +773,25 @@ model requests write_file, ask-mode approval lands the write; the deny run feeds
 the model and the file survives untouched.
 
 Tests: 302 passing.
+
+--- 2026-08-16 (2) ---
+Agent definitions and agents-as-tools (new spec 12.6).
+
+agents.define({id, name, description, role, provider, model, mcp, ...}) declares a named agent
+once; sessions.create({agent: "reviewer"}) expands it with per-call overrides winning. Definitions
+live in code like provider registrations - nothing persisted, nothing to drift.
+
+Every callable definition is also a tool, agent:<id>:ask (shown as ask_<id>, input {message}):
+calling it runs the definition's session and returns {agent, sessionId, reply}. The call goes
+through tools.call, so permission rules, ask-mode approval, and the audit trail decide before any
+session is created - and the deny test proves no session appears. API providers see agent tools
+through the session tool executor; CLI agents reach them via the AgentBridge MCP server; hosts
+call them directly.
+
+Chains are depth-capped (maxAgentCallDepth, default 2, AB-1009 fed back to the calling model as a
+tool result); memory: "oneshot" stops the session after the reply, "persistent" keeps one session
+per definition and the conversation accumulates. New codes AB-1008/AB-1009 (error table now 42,
+guard test updated). REST gains /agents CRUD (table renumbered to 33); the SDK gains
+client.agents on both backends, proven by the parity suite; POST /sessions accepts {agent}.
+
+Tests: 314 passing.

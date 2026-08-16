@@ -44,6 +44,8 @@ const STATUS_BY_CODE: Record<string, number> = {
   "AB-1005": 400,
   "AB-1006": 502,
   "AB-1007": 409,
+  "AB-1008": 404,
+  "AB-1009": 400,
   "AB-2001": 400,
   "AB-2002": 409,
   "AB-2003": 404,
@@ -311,6 +313,26 @@ export class RuntimeServer {
       status: 200,
       body: await this.#agent.mcp.reload(params["id"]!),
     }));
+
+    route("GET", "/agents", async () => ({
+      status: 200,
+      body: { items: this.#agent.agents.list() },
+    }));
+
+    route("POST", "/agents", async ({ body }) => ({
+      status: 201,
+      body: this.#agent.agents.define(body as never),
+    }));
+
+    route("GET", "/agents/:id", async ({ params }) => ({
+      status: 200,
+      body: this.#agent.agents.get(params["id"]!),
+    }));
+
+    route("DELETE", "/agents/:id", async ({ params }) => {
+      this.#agent.agents.remove(params["id"]!);
+      return { status: 204 };
+    });
 
     route("GET", "/tools", async ({ query }) => {
       const sessionId = query.get("sessionId");

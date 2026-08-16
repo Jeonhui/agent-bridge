@@ -17,6 +17,8 @@ export const ERROR_CODES = {
   "AB-1005": { message: "Provider does not support the requested capability", retryable: false },
   "AB-1006": { message: "Provider process exited unexpectedly", retryable: true },
   "AB-1007": { message: "Duplicate provider id", retryable: false },
+  "AB-1008": { message: "Unknown agent definition", retryable: false },
+  "AB-1009": { message: "Agent call depth limit exceeded", retryable: false },
 
   // AB-2xxx MCP / Tool
   "AB-2001": { message: "MCP configuration validation failed", retryable: false },

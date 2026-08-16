@@ -113,6 +113,27 @@ function parity(name: string, setup: () => Promise<{ client: AgentBridgeClient; 
       assert.deepEqual(await client.mcp.list(), []);
     });
 
+    it("defines an agent, creates a session from it, and calls it as a tool (spec 12.6)", async () => {
+      await client.agents.define({
+        id: "helper",
+        name: "Helper",
+        description: "An echo helper.",
+        provider: "echo",
+      });
+      assert.ok((await client.agents.list()).some((definition) => definition.id === "helper"));
+      assert.equal((await client.agents.get("helper")).name, "Helper");
+
+      const session = await client.sessions.create({ agent: "helper" });
+      assert.equal((await session.info()).title, "Helper");
+
+      const result = await client.tools.call("agent:helper:ask", { message: "ping" });
+      assert.equal(result.ok, true);
+      assert.equal((result.content as { reply: string }).reply, "echo:ping");
+
+      await client.agents.remove("helper");
+      assert.deepEqual(await client.agents.list(), []);
+    });
+
     it("streams message events to a session subscriber", async () => {
       const session = await client.sessions.create({ provider: "echo" });
 

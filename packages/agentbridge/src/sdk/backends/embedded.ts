@@ -2,9 +2,10 @@ import type { AgentBridge, AgentEventOf, AgentEventType, Unsubscribe } from "../
 
 import type {
   AgentBridgeClient,
+  AgentDefinition,
   AgentSession,
   ClientSession,
-  CreateSessionOptions,
+  CreateSessionInput,
   ProviderSummary,
   SendResult,
   SessionStatus,
@@ -33,7 +34,7 @@ export class EmbeddedClient implements AgentBridgeClient {
   };
 
   readonly sessions = {
-    create: async (options: CreateSessionOptions): Promise<ClientSession> => {
+    create: async (options: CreateSessionInput): Promise<ClientSession> => {
       const session = await this.#agent.sessions.create(options);
       return this.#session(session.id);
     },
@@ -44,6 +45,14 @@ export class EmbeddedClient implements AgentBridgeClient {
       await this.#agent.sessions.resume(sessionId);
       return this.#session(sessionId);
     },
+  };
+
+  readonly agents = {
+    define: async (definition: AgentDefinition): Promise<AgentDefinition> =>
+      this.#agent.agents.define(definition),
+    list: async (): Promise<AgentDefinition[]> => this.#agent.agents.list(),
+    get: async (id: string): Promise<AgentDefinition> => this.#agent.agents.get(id),
+    remove: async (id: string): Promise<void> => this.#agent.agents.remove(id),
   };
 
   readonly mcp = {

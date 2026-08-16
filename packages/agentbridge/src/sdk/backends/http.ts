@@ -5,9 +5,10 @@ import type { AgentEvent, AgentEventOf, AgentEventType, Unsubscribe } from "../.
 
 import type {
   AgentBridgeClient,
+  AgentDefinition,
   AgentSession,
   ClientSession,
-  CreateSessionOptions,
+  CreateSessionInput,
   ProviderSummary,
   SendResult,
   SessionStatus,
@@ -85,7 +86,7 @@ export class HttpClient implements AgentBridgeClient {
   };
 
   readonly sessions = {
-    create: async (options: CreateSessionOptions): Promise<ClientSession> => {
+    create: async (options: CreateSessionInput): Promise<ClientSession> => {
       const session = await this.#request<AgentSession>("POST", "/sessions", options);
       return this.#session(session.id);
     },
@@ -100,6 +101,18 @@ export class HttpClient implements AgentBridgeClient {
     resume: async (sessionId: string): Promise<ClientSession> => {
       await this.#request("POST", `/sessions/${sessionId}/resume`);
       return this.#session(sessionId);
+    },
+  };
+
+  readonly agents = {
+    define: (definition: AgentDefinition): Promise<AgentDefinition> =>
+      this.#request<AgentDefinition>("POST", "/agents", definition),
+    list: async (): Promise<AgentDefinition[]> =>
+      (await this.#request<{ items: AgentDefinition[] }>("GET", "/agents")).items,
+    get: (id: string): Promise<AgentDefinition> =>
+      this.#request<AgentDefinition>("GET", `/agents/${encodeURIComponent(id)}`),
+    remove: async (id: string): Promise<void> => {
+      await this.#request("DELETE", `/agents/${encodeURIComponent(id)}`);
     },
   };
 
