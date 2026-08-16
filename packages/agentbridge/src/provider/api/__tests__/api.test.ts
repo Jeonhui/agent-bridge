@@ -415,6 +415,49 @@ describe("GeminiApiProvider (spec 12.5)", () => {
   });
 });
 
+describe("empty assistant turns must not corrupt the replay (spec 12.5)", () => {
+  it("anthropic: an empty final answer is skipped on the next request", async () => {
+    const endpoint = await fakeEndpoint([
+      () => ({ content: [] }),   // the model closed the turn with nothing
+      (body) => {
+        for (const m of body.messages) {
+          assert.ok(m.content.length > 0, "no message may carry an empty content array");
+        }
+        assert.ok(!body.messages.some((m: any) => m.role === "assistant"), "the empty turn is skipped");
+        return { content: [{ type: "text", text: "ok" }] };
+      },
+    ]);
+    try {
+      const provider = new AnthropicProvider({ apiKey: "k", baseUrl: endpoint.url, streaming: false });
+      const handle = await provider.start({ sessionId: "a1" });
+      await provider.send(handle, "one", { emit: collector().emit });
+      await provider.send(handle, "two", { emit: collector().emit });
+    } finally {
+      await endpoint.close();
+    }
+  });
+
+  it("gemini: an empty final answer maps to no content entry, not empty parts", async () => {
+    const endpoint = await fakeEndpoint([
+      () => ({ candidates: [{ content: { parts: [] } }] }),
+      (body) => {
+        for (const c of body.contents) {
+          assert.ok(c.parts.length > 0, "no content entry may have zero parts");
+        }
+        return { candidates: [{ content: { parts: [{ text: "ok" }] } }] };
+      },
+    ]);
+    try {
+      const provider = new GeminiApiProvider({ apiKey: "k", baseUrl: endpoint.url });
+      const handle = await provider.start({ sessionId: "g1" });
+      await provider.send(handle, "one", { emit: collector().emit });
+      await provider.send(handle, "two", { emit: collector().emit });
+    } finally {
+      await endpoint.close();
+    }
+  });
+});
+
 describe("message attachments (spec 13.6)", () => {
   const PNG = { type: "image" as const, data: "aGVsbG8=", mimeType: "image/png", name: "shot.png" };
   const PDF = { type: "document" as const, data: "cGRm", mimeType: "application/pdf" };

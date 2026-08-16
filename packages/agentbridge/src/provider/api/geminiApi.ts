@@ -72,7 +72,9 @@ export class GeminiApiProvider extends ApiProviderBase {
 
     const contents = request.messages
       .filter((m) => m.role !== "system")
-      .map((m) => toContent(m, wireNames));
+      .map((m) => toContent(m, wireNames))
+      // An assistant turn that ended with empty text maps to zero parts, which the API rejects.
+      .filter((c) => (c["parts"] as unknown[]).length > 0);
 
     const model = request.model ?? this.defaultModel ?? "gemini-2.0-flash";
     const json = (await apiFetch(

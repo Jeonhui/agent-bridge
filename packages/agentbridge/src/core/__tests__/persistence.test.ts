@@ -71,6 +71,39 @@ describe("session persistence across a restart (spec 28.2)", () => {
     await second.stop();
   });
 
+  it("keeps cumulative usage across a restart - it is a running total, not turn state", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "agentbridge-persist-"));
+
+    const usageProvider = {
+      ...echoProvider(),
+      id: "metered",
+      send: async (
+        _handle: unknown,
+        message: string,
+        { emit }: { emit: (payload: AgentEventPayload) => void },
+      ) => {
+        emit({ type: "usage", model: "metered-v1", inputTokens: 5, outputTokens: 2 });
+        emit({ type: "message", role: "assistant", content: `echo:${message}`, delta: false, done: true });
+      },
+    };
+
+    const first = new AgentBridge({ storage: new FileStorage({ dataDir }), logger: silent() as never });
+    first.registerProvider(usageProvider as never);
+    await first.start();
+    const session = await first.sessions.create({ provider: "metered", mcp: [] });
+    await session.send("one");
+    await session.send("two");
+    assert.deepEqual(session.info.usage, { inputTokens: 10, outputTokens: 4, turns: 2 });
+    await first.stop();
+
+    const second = new AgentBridge({ storage: new FileStorage({ dataDir }), logger: silent() as never });
+    second.registerProvider(usageProvider as never);
+    await second.start();
+    const restored = second.sessions.list()[0];
+    assert.deepEqual(restored?.usage, { inputTokens: 10, outputTokens: 4, turns: 2 });
+    assert.equal(restored?.model, "metered-v1");
+  });
+
   it("restores a session as stopped, because its agent process is gone", async () => {
     const dataDir = await mkdtemp(join(tmpdir(), "agentbridge-persist-"));
 

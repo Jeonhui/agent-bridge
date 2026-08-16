@@ -192,7 +192,9 @@ function toWireMessages(messages: ApiMessage[], wireNames: Map<string, string>):
           input: call.arguments ?? {},
         });
       }
-      push("assistant", content);
+      // A model can close a turn with empty text; the API rejects an empty content array, and
+      // skipping is safe because consecutive user-side entries merge anyway.
+      if (content.length > 0) push("assistant", content);
     } else {
       push("user", [{ type: "tool_result", tool_use_id: message.toolCallId, content: message.content }]);
     }

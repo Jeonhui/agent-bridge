@@ -60,6 +60,7 @@ export interface PersistedSession {
   model?: string;
   env?: Record<string, string>;
   permissionMode: AgentSession["permissionMode"];
+  usage?: { inputTokens: number; outputTokens: number; turns: number };
   nativeSessionId?: string;
   createdAt: string;
   updatedAt: string;
@@ -175,6 +176,7 @@ export class SessionManager {
         ...(persisted.workingDirectory ? { workingDirectory: persisted.workingDirectory } : {}),
         ...(persisted.model ? { model: persisted.model } : {}),
         ...(persisted.env ? { env: persisted.env } : {}),
+        ...(persisted.usage ? { usage: persisted.usage } : {}),
         ...(persisted.nativeSessionId ? { nativeSessionId: persisted.nativeSessionId } : {}),
       };
 
@@ -557,6 +559,7 @@ export class SessionManager {
         ...(info.workingDirectory ? { workingDirectory: info.workingDirectory } : {}),
         ...(info.model ? { model: info.model } : {}),
         ...(info.env ? { env: info.env } : {}),
+        ...(info.usage ? { usage: info.usage } : {}),
         ...(record.handle.nativeSessionId
           ? { nativeSessionId: record.handle.nativeSessionId }
           : {}),

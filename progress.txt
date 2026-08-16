@@ -876,3 +876,20 @@ Retry/backoff and message attachments (0.5.0).
   the replay history, so a resumed session replays them - proven by test.
 
 Tests: 339 passing.
+
+--- 2026-08-16 (7) ---
+Verification pass over 0.3.0-0.5.0 found three defects, fixed in 0.5.1:
+
+- Session usage did not survive a restart: PersistedSession lacked the field, so the running
+  total silently reset. Persist + restore now carry it, proven by a restart test that also
+  checks the adopted model comes back.
+- An empty final answer corrupted the replay for Anthropic (empty content array -> API 400 on
+  the NEXT turn) and Gemini (empty parts). Empty assistant turns are now skipped at wire
+  mapping - safe because consecutive user-side entries merge anyway - with tests asserting no
+  empty content/parts ever leave the process.
+
+Mechanical checks all green: REST spec/impl 33=33 routes, error table 42=42, spec fences and
+anchors OK, zero Korean characters, examples/tools runs, and scenario A passes live against
+claude 2.1.232 (round trip, resume, seq ordering).
+
+Tests: 342 passing.
