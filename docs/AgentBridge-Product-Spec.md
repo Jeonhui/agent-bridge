@@ -679,9 +679,14 @@ Rules the base class enforces:
   aborted turn never leaves a dangling message to replay. (MUST)
 - A permission denial, an unknown tool id, or a rejected executor call becomes a tool result the
   model reads — the loop continues and the model decides what to do about the refusal. (MUST)
-- `capabilities.resume` is `false`: the history lives in process memory, and claiming otherwise
-  would be worse than saying so. `permissionHook` is `true` natively — no prompt tool is needed
-  because every call already runs through the core. (MUST)
+- `capabilities.resume` reflects whether a history store is configured. With one (e.g.
+  `FileHistoryStore`), the provider persists each session's replay history — provider-internal
+  wire state, not a host-facing transcript — after every successful turn, and `start()` with a
+  resume token reloads it, so the conversation survives a process restart. Without a store the
+  history lives in memory and resume is honestly `false`. A persistence failure never kills a
+  live session (28.3), and a corrupt history file is quarantined, not fatal. (MUST)
+  `permissionHook` is `true` natively — no prompt tool is needed because every call already runs
+  through the core. (MUST)
 - Tool ids like `mcp:server:name` are not valid wire names in every dialect. The mapping between
   registry ids and wire names is a per-request table, not a reversible encoding, because no
   encoding survives tool names that contain the separator. (MUST)
@@ -703,6 +708,7 @@ Shipped implementations:
 | `OpenAICompatProvider` | `/api` | OpenAI chat-completions | One adapter, many backends: OpenAI, LiteLLM, OpenRouter, Ollama, vLLM — pick with `baseUrl` |
 | `LiteLLMProvider` | `/api` | Same dialect | Defaults filled in: `http://127.0.0.1:4000/v1`, `LITELLM_BASE_URL` / `LITELLM_API_KEY` |
 | `GeminiApiProvider` | `/api` | `generateContent` REST | How Gemini returns after the CLI retired (33.2); takes the same `GEMINI_API_KEY` |
+| `AnthropicProvider` | `/api` | Anthropic Messages API | The same models the Claude CLI drives, without the CLI; `ANTHROPIC_API_KEY`, streaming by default |
 
 ### 12.6 Agent definitions and agents as tools
 

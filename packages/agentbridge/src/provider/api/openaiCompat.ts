@@ -4,6 +4,8 @@ import {
   apiFetch,
   apiFetchSse,
   type ApiMessage,
+  uniqueWireName,
+  wireNameFor,
   type ApiTurnResult,
   type ApiUsage,
 } from "./base.js";
@@ -22,6 +24,8 @@ export interface OpenAICompatOptions {
   requestTimeoutMs?: number;
   /** SSE streaming (`stream: true`). Defaults to true; disable for servers that reject it. */
   streaming?: boolean;
+  /** History persistence; setting it turns `capabilities.resume` on. See FileHistoryStore. */
+  history?: import("./history.js").ApiHistoryStore;
 }
 
 /**
@@ -39,6 +43,7 @@ export class OpenAICompatProvider extends ApiProviderBase {
       id: options.id ?? "openai-compat",
       name: options.name ?? "OpenAI-compatible API",
       streaming: options.streaming ?? true,
+      ...(options.history ? { history: options.history } : {}),
       ...(options.defaultModel ? { defaultModel: options.defaultModel } : {}),
       ...(options.maxToolRounds !== undefined ? { maxToolRounds: options.maxToolRounds } : {}),
       ...(options.requestTimeoutMs !== undefined ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
@@ -120,8 +125,10 @@ export class LiteLLMProvider extends OpenAICompatProvider {
       ...(apiKey !== undefined ? { apiKey } : {}),
       ...(options.defaultModel !== undefined ? { defaultModel: options.defaultModel } : {}),
       ...(options.headers !== undefined ? { headers: options.headers } : {}),
+      ...(options.history !== undefined ? { history: options.history } : {}),
       ...(options.maxToolRounds !== undefined ? { maxToolRounds: options.maxToolRounds } : {}),
       ...(options.requestTimeoutMs !== undefined ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
+      ...(options.streaming !== undefined ? { streaming: options.streaming } : {}),
     });
   }
 }
@@ -253,21 +260,6 @@ function toWire(message: ApiMessage, wireNames: Map<string, string>): Record<str
     return { role: "tool", tool_call_id: message.toolCallId, content: message.content };
   }
   return { role: message.role, content: message.content };
-}
-
-function uniqueWireName(toolId: string, wireNames: Map<string, string>): string {
-  const base = toolId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 60) || "tool";
-  let candidate = base;
-  for (let n = 2; wireNames.has(candidate) && wireNames.get(candidate) !== toolId; n += 1) {
-    candidate = `${base}_${n}`;
-  }
-  wireNames.set(candidate, toolId);
-  return candidate;
-}
-
-function wireNameFor(toolId: string, wireNames: Map<string, string>): string {
-  for (const [wire, id] of wireNames) if (id === toolId) return wire;
-  return uniqueWireName(toolId, wireNames);
 }
 
 function safeParse(raw: string | undefined): unknown {

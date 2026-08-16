@@ -9,6 +9,8 @@ export interface GeminiApiOptions {
   defaultModel?: string;
   maxToolRounds?: number;
   requestTimeoutMs?: number;
+  /** History persistence; setting it turns `capabilities.resume` on. See FileHistoryStore. */
+  history?: import("./history.js").ApiHistoryStore;
 }
 
 /**
@@ -29,6 +31,7 @@ export class GeminiApiProvider extends ApiProviderBase {
       id: "gemini",
       name: "Gemini API",
       defaultModel: options.defaultModel ?? "gemini-2.0-flash",
+      ...(options.history ? { history: options.history } : {}),
       ...(options.maxToolRounds !== undefined ? { maxToolRounds: options.maxToolRounds } : {}),
       ...(options.requestTimeoutMs !== undefined ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
     });

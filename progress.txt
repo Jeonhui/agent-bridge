@@ -832,3 +832,26 @@ Streaming, usage, and model visibility for API providers (0.3.0).
 
 Tests: 323 passing (SSE delta/tool-fragment/plain-JSON-fallback/opt-out, usage accumulation,
 Claude usage parse, Gemini usage, defaultModel listing).
+
+--- 2026-08-16 (5) ---
+API provider resume and the Anthropic adapter (0.4.0).
+
+- ApiHistoryStore / FileHistoryStore (new /api export): the provider persists each session's
+  replay history - provider-internal wire state, deliberately not a host-facing transcript; the
+  host's transcript is the event stream, per the role split agreed with the user. Configuring a
+  store is exactly what turns capabilities.resume on; the handle returns nativeSessionId so the
+  core's existing resume flow carries the store key back as the resume token. Atomic writes
+  (tmp+rename), corrupt files quarantined as .corrupt instead of failing the session, save
+  failures never kill a live turn. The restart test proves a NEW provider instance replays the
+  first process's conversation verbatim.
+
+- AnthropicProvider: Claude over the Messages API - the same models the CLI drives, without the
+  CLI. max_tokens on every request, system as a top-level field, tool_result blocks merged into
+  single user turns because roles must alternate (asserted in the test), streaming by default
+  with text_delta / input_json_delta assembly, usage from message_start + message_delta summed
+  across tool rounds. ANTHROPIC_API_KEY via option or environment.
+
+- Wire-name helpers (uniqueWireName/wireNameFor) moved to the /api base and shared by the
+  OpenAI and Anthropic adapters.
+
+Tests: 330 passing.

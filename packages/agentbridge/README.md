@@ -48,7 +48,7 @@ One package. Import only the part you need:
 | `@jeonhui/agentbridge` | Sessions, events, errors, storage, logging, secrets |
 | `@jeonhui/agentbridge/claude` | The Claude Code adapter |
 | `@jeonhui/agentbridge/codex` | The Codex CLI adapter |
-| `@jeonhui/agentbridge/api` | API providers: OpenAI-compatible endpoints, LiteLLM, Gemini API |
+| `@jeonhui/agentbridge/api` | API providers: Anthropic, OpenAI-compatible endpoints, LiteLLM, Gemini |
 | `@jeonhui/agentbridge/mcp` | Register MCP servers and give agents your tools |
 | `@jeonhui/agentbridge/permission` | Decide which tool calls may run; show an approval UI |
 | `@jeonhui/agentbridge/runtime` | Expose everything over local REST + WebSocket |
@@ -220,8 +220,11 @@ would have brought, and executes the model's tool calls through the same MCP and
 machinery, so ask-mode approval works with no extra setup:
 
 ```typescript
-import { LiteLLMProvider, OpenAICompatProvider, GeminiApiProvider } from "@jeonhui/agentbridge/api";
+import {
+  AnthropicProvider, GeminiApiProvider, LiteLLMProvider, OpenAICompatProvider,
+} from "@jeonhui/agentbridge/api";
 
+agent.registerProvider(new AnthropicProvider());                  // needs ANTHROPIC_API_KEY
 agent.registerProvider(new LiteLLMProvider());                    // http://127.0.0.1:4000/v1
 agent.registerProvider(new GeminiApiProvider());                  // needs GEMINI_API_KEY
 agent.registerProvider(new OpenAICompatProvider({                 // any compatible endpoint
@@ -230,7 +233,7 @@ agent.registerProvider(new OpenAICompatProvider({                 // any compati
   defaultModel: "llama3.2",
 }));
 
-const session = await agent.sessions.create({ provider: "litellm", model: "gpt-4o", mcp: ["fs"] });
+const session = await agent.sessions.create({ provider: "anthropic", mcp: ["fs"] });
 ```
 
 Sessions, events, `/model`, `/tools`, MCP bindings, and approvals all work identically — and
@@ -241,10 +244,19 @@ session accumulates the totals in `session.info.usage`. Everything is configurab
 `baseUrl`, `apiKey`, `defaultModel`, `headers`, `maxToolRounds`, `requestTimeoutMs`, and
 `streaming` (on by default; set `streaming: false` for servers that reject it).
 
-The one honest difference: `resume` is `false` — the conversation lives in process memory, so a
-restart starts fresh. Writing your own is two methods: extend `ApiProviderBase` and implement
-`detect()` plus `complete()` (one request/response in your wire format); the loop, history, abort
-handling, and permission flow are inherited.
+Conversations can survive restarts too: give the provider a history store and `resume` turns on —
+the provider persists its replay state (its own wire conversation, not your UI transcript; that
+stays your app's job via the event stream) and `sessions.resume(id)` picks up where it left off:
+
+```typescript
+import { FileHistoryStore } from "@jeonhui/agentbridge/api";
+
+new AnthropicProvider({ history: new FileHistoryStore({ directory: ".agentbridge/api-history" }) });
+```
+
+Writing your own is two methods: extend `ApiProviderBase` and implement `detect()` plus
+`complete()` (one request/response in your wire format); the loop, history, streaming, resume,
+abort handling, and permission flow are inherited.
 
 ### Name your agents — and let them call each other
 
@@ -359,6 +371,7 @@ unsupported.
 | --- | --- |
 | **Claude Code** | ✅ Verified end to end against the real CLI: streaming, resume, MCP tools, approval hook |
 | **Codex** | ⚠️ Adapter implemented and tested against captured output, but no turn has completed on the dev machine (the account rejects every model). `pnpm scenario:codex` shows it failing *correctly*. Run `codex update` and retry |
+| **Anthropic API** | ✅ `AnthropicProvider` with `ANTHROPIC_API_KEY` — the same Claude models without the CLI; streaming + tools verified against wire-accurate fake servers |
 | **OpenAI-compatible APIs** (LiteLLM, OpenRouter, Ollama, vLLM, OpenAI) | ✅ `OpenAICompatProvider` / `LiteLLMProvider`, verified against wire-accurate fake servers including the full MCP + ask-approval loop |
 | **Gemini (API)** | ✅ `GeminiApiProvider` with `GEMINI_API_KEY`, verified against a wire-accurate fake server |
 | **Gemini (CLI)** | ❌ Removed. Google retired the individual sign-in the CLI used, and its successor (Antigravity) is a GUI IDE with no headless entry point. Comes back if a CLI turn can complete end to end — use the API provider meanwhile |

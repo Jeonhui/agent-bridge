@@ -1,5 +1,6 @@
 import { AgentBridgeError } from "../../core/errors/AgentBridgeError.js";
 import type { AgentEventPayload } from "../../core/events/types.js";
+import type { ApiHistoryStore } from "./history.js";
 import type {
   AgentProvider,
   AgentStartOptions,
@@ -54,6 +55,12 @@ export interface ApiProviderBaseOptions {
   requestTimeoutMs?: number;
   /** Whether this adapter streams deltas. Reflected in capabilities. Defaults to false. */
   streaming?: boolean;
+  /**
+   * Persists each session's replay history, which is what makes `capabilities.resume` true:
+   * with a store, the conversation survives a process restart. Without one, history lives in
+   * memory and resume is honestly false.
+   */
+  history?: ApiHistoryStore;
 }
 
 interface ApiSession {
@@ -68,8 +75,8 @@ interface ApiSession {
  * send the history and the session's tools, and when the model asks for a tool, execute it through
  * the core's tool executor — the same path as agent.tools.call, so permission rules, ask-mode
  * approval, and the audit trail all apply without any CLI-specific machinery. Conversation context
- * is the history this class keeps, which is why `resume` is declared false: a process restart
- * loses it, and pretending otherwise would be worse than saying so.
+ * is the history this class keeps; `capabilities.resume` reflects whether a history store is
+ * configured, because that store is exactly what lets the conversation survive a restart.
  *
  * Subclasses implement exactly one thing: `complete()`, one round trip in their wire format.
  */
@@ -81,6 +88,7 @@ export abstract class ApiProviderBase implements AgentProvider {
   readonly defaultModel: string | undefined;
   readonly #maxToolRounds: number;
   readonly #requestTimeoutMs: number;
+  readonly #store: ApiHistoryStore | undefined;
   readonly #sessions = new Map<string, ApiSession>();
 
   constructor(options: ApiProviderBaseOptions) {
@@ -89,13 +97,14 @@ export abstract class ApiProviderBase implements AgentProvider {
     this.defaultModel = options.defaultModel;
     this.#maxToolRounds = options.maxToolRounds ?? 8;
     this.#requestTimeoutMs = options.requestTimeoutMs ?? 120_000;
+    this.#store = options.history;
     this.capabilities = {
       streaming: options.streaming ?? false,
-      mcp: true,             // tools arrive through the executor rather than injection
-      resume: false,         // history lives in memory; see the class comment
+      mcp: true,                      // tools arrive through the executor rather than injection
+      resume: this.#store !== undefined,   // a history store is exactly what resume requires
       interrupt: true,
       workingDirectory: false,
-      permissionHook: true,  // ask works natively: every tool call runs through the core
+      permissionHook: true,           // ask works natively: every tool call runs through the core
     };
   }
 
@@ -124,11 +133,24 @@ export abstract class ApiProviderBase implements AgentProvider {
       });
     }
 
-    const history: ApiMessage[] = [];
-    if (options.systemPrompt) history.push({ role: "system", content: options.systemPrompt });
+    // A stored history wins over a fresh one: it already carries the system prompt and every
+    // turn that came before the restart. The key doubles as the resume token, which is why the
+    // handle names it as nativeSessionId below.
+    const stored = this.#store
+      ? await this.#store.load(options.resumeToken ?? options.sessionId).catch(() => undefined)
+      : undefined;
+
+    const history: ApiMessage[] = stored ?? [];
+    if (!stored && options.systemPrompt) {
+      history.push({ role: "system", content: options.systemPrompt });
+    }
 
     this.#sessions.set(options.sessionId, { history, options });
-    return { sessionId: options.sessionId, providerId: this.id };
+    return {
+      sessionId: options.sessionId,
+      providerId: this.id,
+      ...(this.#store ? { nativeSessionId: options.sessionId } : {}),
+    };
   }
 
   async send(
@@ -257,6 +279,11 @@ export abstract class ApiProviderBase implements AgentProvider {
       }
 
       session.history = working;
+      if (this.#store) {
+        // A persistence failure must not kill a live session (spec 28.3); the turn already
+        // succeeded, only its durability is degraded.
+        await this.#store.save(handle.sessionId, working).catch(() => undefined);
+      }
     } finally {
       clearTimeout(deadline);
       signal?.removeEventListener("abort", onAbort);
@@ -313,6 +340,34 @@ export async function apiFetch(
       details: { providerId, body: text.slice(0, 200) },
     });
   }
+}
+
+/**
+ * Shared helper: collision-safe wire names. APIs restrict tool names (OpenAI to [A-Za-z0-9_-],
+ * Anthropic likewise), and no reversible encoding survives tool names that contain the
+ * separator - so the mapping is a per-request table.
+ */
+export function uniqueWireName(
+  toolId: string,
+  wireNames: Map<string, string>,
+  allowed: RegExp = /[^A-Za-z0-9_-]/g,
+): string {
+  const base = toolId.replace(allowed, "_").slice(0, 60) || "tool";
+  let candidate = base;
+  for (let n = 2; wireNames.has(candidate) && wireNames.get(candidate) !== toolId; n += 1) {
+    candidate = `${base}_${n}`;
+  }
+  wireNames.set(candidate, toolId);
+  return candidate;
+}
+
+export function wireNameFor(
+  toolId: string,
+  wireNames: Map<string, string>,
+  allowed?: RegExp,
+): string {
+  for (const [wire, id] of wireNames) if (id === toolId) return wire;
+  return uniqueWireName(toolId, wireNames, allowed);
 }
 
 /**
