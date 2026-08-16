@@ -1,6 +1,6 @@
 {
   "name": "@jeonhui/agentbridge",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "A headless local runtime that connects installed AI agent CLIs to any program, with MCP tools and permissions",
   "keywords": [
     "agentbridge",
@@ -72,7 +72,8 @@
     "!dist/**/__tests__",
     "!dist/testing",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "llms.txt"
   ],
   "engines": {
     "node": ">=20"

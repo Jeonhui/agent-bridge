@@ -1,0 +1,203 @@
+# AgentBridge — guide for LLMs and AI coding assistants
+
+> AgentBridge (`@jeonhui/agentbridge`, MIT, Node >= 20, ESM only) is a headless local runtime that
+> lets a program drive AI agents — the Claude Code / Codex CLIs installed on the machine, or model
+> APIs (Anthropic, OpenAI-compatible, LiteLLM, Gemini) — through one interface: sessions in,
+> events out, user-defined MCP tools, and a deny-by-default permission system. It ships NO UI;
+> the host application renders everything from the event stream.
+
+This file is self-contained: everything needed to integrate AgentBridge is below.
+
+## Two ways to run it
+
+1. **Daemon (any language)** — `npx @jeonhui/agentbridge-cli serve` prints
+   `{"host":"127.0.0.1","port":...,"token":"ab_local_..."}`. Talk REST + WebSocket (surface below).
+   `npx @jeonhui/agentbridge-cli agents` lists which agent CLIs are installed.
+2. **Embedded (Node)** — `pnpm add @jeonhui/agentbridge`, import subpaths as needed.
+
+Subpath exports: `@jeonhui/agentbridge` (core), `/claude`, `/codex`, `/api` (API providers),
+`/mcp`, `/permission`, `/runtime`, `/sdk` (browser-safe client), `/mcp-server`, `/provider`
+(adapter contract).
+
+## Minimal working example
+
+```typescript
+import { AgentBridge } from "@jeonhui/agentbridge";
+import { ClaudeProvider } from "@jeonhui/agentbridge/claude";
+
+const agent = new AgentBridge();               // config optional, see "Config"
+agent.registerProvider(new ClaudeProvider());  // requires the `claude` CLI, logged in
+await agent.start();                           // ALWAYS before sessions.create
+
+const session = await agent.sessions.create({ provider: "claude" });
+session.on("message", (e) => process.stdout.write(e.content));
+await session.send("Summarise this project in one sentence.");
+await agent.stop();
+```
+
+Rules an integrator must know:
+- `await agent.start()` before creating sessions (AB-5005 otherwise).
+- `send()` resolves when the TURN COMPLETES, not when the message is accepted. Stream output via
+  events; concurrent `send()`s on one session queue (serialize) by default.
+- Everything the agent does arrives as events. There is no other output channel.
+
+## Events
+
+`session.on(type, handler)` (session-scoped) or `agent.on(type, handler)` (global). Every event
+has `{ id, seq, sessionId, turnId?, timestamp }`; `seq` increases monotonically per session, so a
+client can recover gaps after reconnect (`GET /sessions/:id/events?sinceSeq=`).
+
+| type | payload highlights |
+| --- | --- |
+| `message` | `role, content, delta, done` — deltas APPEND, a full message (`delta:false`) REPLACES |
+| `tool_call` | `callId, tool, toolId, arguments, source{type: mcp\|builtin\|system\|agent}` |
+| `tool_result` / `tool_error` | `callId, ok, content` / `error{code,message,retryable}`, `durationMs` |
+| `status` | session `status` + `previous` (`starting/ready/running/waiting/stopped/error`) |
+| `permission_request` | `requestId, tool, toolId, arguments, permissions, expiresAt` — answer it! |
+| `usage` | per-turn `model` (the model that ACTUALLY served), `inputTokens, outputTokens, totalTokens` |
+| `mcp_status` | MCP server `state` transitions |
+| `error` | `error{code,...}, fatal` |
+
+Sessions accumulate usage: `session.info.usage = { inputTokens, outputTokens, turns }`, and
+`session.info.model` is updated to the model the provider reports — the ground truth.
+
+## Providers
+
+CLI adapters (one process per turn; conversation continuity via the CLI's own resume):
+- `new ClaudeProvider({ defaultModel? })` from `/claude` — verified end to end.
+- `new CodexProvider({ defaultModel? })` from `/codex` — implemented; sandbox pinned least-privilege.
+
+API providers from `/api` (no CLI needed; AgentBridge runs the agent loop and executes tool calls
+through its own permission system):
+- `new AnthropicProvider({ apiKey?|ANTHROPIC_API_KEY, defaultModel: "claude-sonnet-4-5", maxTokens? })`
+- `new OpenAICompatProvider({ baseUrl, apiKey?|OPENAI_API_KEY, id?, defaultModel? })` — one adapter
+  for OpenAI, OpenRouter, Ollama (`http://127.0.0.1:11434/v1`), vLLM, any compatible endpoint.
+- `new LiteLLMProvider({ ... })` — defaults `http://127.0.0.1:4000/v1`, `LITELLM_API_KEY`.
+- `new GeminiApiProvider({ apiKey?|GEMINI_API_KEY, defaultModel: "gemini-2.0-flash" })`
+
+Shared API-provider options: `streaming` (SSE deltas; on by default except Gemini),
+`retry: { maxRetries=2, baseDelayMs=500, maxDelayMs=10000 }` (429/5xx/network auto-retry,
+`Retry-After` honored; other 4xx fail fast), `requestTimeoutMs`, `maxToolRounds` (default 8),
+`headers`, and `history: new FileHistoryStore({ directory })` which turns `capabilities.resume`
+on — the conversation then survives a process restart via `agent.sessions.resume(id)`.
+
+`agent.providers.list()` → `{ id, name, available, version?, defaultModel?, reason? }[]`.
+Custom adapter: implement `AgentProvider` from `/provider` (for APIs, extend `ApiProviderBase`
+from `/api` and write only `detect()` + `complete()`).
+
+## Sessions
+
+```typescript
+agent.sessions.create({
+  provider, model?, systemPrompt?, mcp?: ["serverId"], permissionMode?: "ask"|"allow"|"deny",
+  workingDirectory?, env?, title?, queueing?,            // or: { agent: "reviewer", ...overrides }
+});
+session.send(message, { attachments? });   // -> { turnId, queued }
+session.setModel("haiku");                 // next turn; conversation context SURVIVES
+session.tools();                           // tools this session can see
+session.interrupt(); session.stop();
+agent.sessions.resume(sessionId);          // after restart; CLI adapters + stored-history APIs
+```
+
+Attachments (images/documents): `{ type: "image"|"document", data: base64NoPrefix, mimeType, name? }`.
+API providers map them to their wire formats (OpenAI dialect: images only). CLI adapters reject
+them with AB-1005 — never silently dropped. Attachments replay on resume.
+
+## Tools (MCP)
+
+```typescript
+import { McpManager } from "@jeonhui/agentbridge/mcp";
+const mcp = new McpManager();
+agent.attachMcp(mcp);
+await mcp.add({ id: "fs", transport: "stdio", command: "node", args: ["./fs-mcp.js", "/dir"],
+                watch: { enabled: true } });   // hot reload on file change, ~150ms
+```
+- Transports: `stdio`, `sse`, `streamable-http`. Tool ids: `mcp:<server>:<name>`.
+- Sessions opt in per server: `sessions.create({ mcp: ["fs"] })`.
+- Host can call directly: `agent.tools.call(toolId, args, { sessionId? })` → `{ ok, content?, error? }`
+  (a permission denial is `ok:false` with `error.code: "AB-4001"`, not a throw).
+- Permission classes are inferred: annotations > overrides > name heuristics > WRITE default.
+
+## Permissions (deny-by-default)
+
+```typescript
+import { PermissionManager } from "@jeonhui/agentbridge/permission";
+const permissions = new PermissionManager({ promptHook: { enabled: true } }); // hook: CLI agents' own calls stop and ask too
+agent.attachPermissions(permissions);
+agent.on("permission_request", (e) => {
+  // decide, then ONE of:
+  agent.permissions.approve(e.requestId, { remember: "session" });
+  agent.permissions.deny(e.requestId, { reason: "..." });
+});
+permissions.setRule({ id: "ok-writes", match: { toolPattern: "mcp:fs:*", pathScope: "/workspace/**" },
+                      effect: "allow", priority: 10, createdAt: new Date().toISOString() });
+permissions.autoApprove(true);   // approve everything (dev only)
+```
+No answer within `approvalTimeoutMs` (default 120s) = deny. API providers get `ask` natively;
+CLI agents need the `promptHook`. Questions ALWAYS surface to the host app — AgentBridge never
+renders its own prompt.
+
+## Agent definitions & agent-calls-agent
+
+```typescript
+agent.agents.define({ id: "reviewer", name: "Code Reviewer", description: "Reviews diffs.",
+  role: "You are a strict reviewer.", provider: "anthropic", model: "claude-sonnet-4-5",
+  mcp: ["fs"], memory: "oneshot"|"persistent", callable: true });
+await agent.sessions.create({ agent: "reviewer" });          // definition + overrides
+await agent.tools.call("agent:reviewer:ask", { message: "review src/auth.ts" });
+// -> { ok, content: { agent, sessionId, reply } }
+```
+Every callable definition is also a tool (`ask_<id>`) that other agents can call — through the
+same permission system (class EXECUTE). Chains are capped by `maxAgentCallDepth` (default 2,
+AB-1009 beyond). `memory: "persistent"` keeps one remembering session per definition.
+
+## Config (all optional)
+
+```typescript
+new AgentBridge({ dataDir: "~/.agentbridge", logLevel: "warn", defaultPermissionMode: "ask",
+  approvalTimeoutMs: 120000, eventRetentionPerSession: 1000, workingDirectory: process.cwd(),
+  maxAgentCallDepth: 2, storage: new FileStorage({ dataDir }), logger, secrets });
+```
+Default storage is in-memory; use `FileStorage` (from the core export) to survive restarts
+(sessions, MCP registrations, permission rules, usage totals all restore). `secret://<key>`
+references in env/config resolve through the `secrets` resolver; unresolved = AB-6004 error.
+
+## SDK (same code, both transports) & REST
+
+```typescript
+import { createClient } from "@jeonhui/agentbridge/sdk";
+const client = createClient({ transport: "embedded", agent });
+const client = createClient({ transport: "http", baseUrl, token, webSocket: (u) => new WebSocket(u) });
+```
+`/sdk` imports nothing from Node — it bundles for browsers (~13 kB).
+
+REST (Bearer token, loopback only): `GET /health`, `GET/POST /providers(/detect)`,
+`GET/POST /sessions`, `GET/DELETE /sessions/:id`, `POST /sessions/:id/messages` (`{message, attachments?}`, 202),
+`/interrupt`, `/resume`, `PATCH /sessions/:id/{mcp,model,permission-mode}`, `GET /sessions/:id/events?sinceSeq=`,
+`GET/POST /mcp`, `GET/DELETE /mcp/:id`, `POST /mcp/:id/{connect,disconnect,reload}`,
+`GET/POST /agents`, `GET/DELETE /agents/:id`, `GET /tools(/:id)`, `POST /tools/:id/call`,
+`GET /permissions/pending`, `POST /permissions/:requestId/{approve,deny}`, `GET/PUT /permissions/policies`.
+Events stream over `ws://host:port/events?token=...` — send
+`{ "t": "subscribe", "sessionIds"?: [...], "events"?: [...], "sinceSeq"?: n }` as a JSON frame;
+`sinceSeq` replays retained events to close a reconnect gap (outside retention = AB-5003).
+
+## Errors
+
+`AgentBridgeError` with codes `AB-1xxx` provider (1001 unknown, 1002 unavailable, 1005 capability
+unsupported, 1006 upstream/process failure, 1008 unknown agent definition, 1009 agent depth),
+`AB-2xxx` MCP/tools (2201 tool not found, 2202 execution failed, 2203 bad input), `AB-3xxx`
+sessions (3002 wrong state, 3003 busy without queueing, 3004 not found), `AB-4xxx` permissions
+(4001 denied, 4003 approval timeout), `AB-5xxx` runtime/auth, `AB-6xxx` secrets. Every error
+carries `{ code, message, retryable, details? }`.
+
+## Gotchas for generated code
+
+- ESM only; Node >= 20. No default export — use named imports from the subpaths above.
+- Register providers BEFORE `agent.start()`; attach `McpManager`/`PermissionManager` before too.
+- `send()` awaits the whole turn. For streaming UX, subscribe to `message` events and treat
+  `delta:true` as append, `delta:false` as the authoritative full text.
+- Without a `PermissionManager`, tool calls run UNCHECKED; with one, default mode is `ask` and an
+  unanswered ask is a deny.
+- The daemon binds 127.0.0.1 and mints a new token each start (written to `~/.agentbridge/runtime.json`).
+- Full spec: `docs/AgentBridge-Product-Spec.md` in the repository
+  (https://github.com/Jeonhui/agent-bridge).

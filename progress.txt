@@ -893,3 +893,16 @@ anchors OK, zero Korean characters, examples/tools runs, and scenario A passes l
 claude 2.1.232 (round trip, resume, seq ordering).
 
 Tests: 342 passing.
+
+--- 2026-08-16 (8) ---
+README leads with npx (0.5.2). The two zero-install commands (agentbridge-cli agents / serve)
+moved above the library install as "Try it now - no install", per the user: it is the simpler
+path and should be what people reach first. The library section follows as "Install the library".
+
+New llms.txt at the repo root and inside the npm tarball: a self-contained, detailed guide
+written for LLMs and AI coding assistants - both run modes, sessions, the full event table,
+every provider with its options (streaming/retry/history/attachments), MCP, permissions, agent
+definitions, config, SDK/REST/WS surface, error code ranges, and the gotchas generated code
+tends to get wrong (ESM-only, send() awaits the turn, delta-append/full-replace, ask defaults).
+Claims were verified against the code before shipping (FileStorage export, WS subscribe frame
+shape, runtime.json path, autoApprove).

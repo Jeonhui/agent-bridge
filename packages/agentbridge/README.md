@@ -35,7 +35,21 @@ No chat UI is included — that is the point. You build the UI; AgentBridge does
 - **Automation that survives restarts** — sessions, tool registrations, and permission rules persist,
   and a conversation can resume where it left off.
 
-## Install
+## Try it now — no install
+
+The fastest way in. Two commands, nothing added to your project:
+
+```bash
+npx @jeonhui/agentbridge-cli agents    # which agent CLIs are installed here?
+npx @jeonhui/agentbridge-cli serve     # start the local runtime, prints URL + token
+```
+
+`serve` starts the whole thing as a small local daemon: sessions, tools, permissions, and events
+over plain REST + WebSocket, so **any language** can use it — curl, Python, Swift, whatever
+(see [Use it from Python](#use-it-from-python-or-any-language)). If that is all you need, you are
+done; the library below is for embedding AgentBridge inside a Node app.
+
+## Install the library
 
 ```bash
 pnpm add @jeonhui/agentbridge        # or npm / yarn
@@ -56,12 +70,8 @@ One package. Import only the part you need:
 | `@jeonhui/agentbridge/mcp-server` | Let an external agent drive AgentBridge |
 | `@jeonhui/agentbridge/provider` | The adapter contract, for writing your own |
 
-Or skip the library and just run the daemon:
-
-```bash
-npx @jeonhui/agentbridge-cli agents    # which agent CLIs are installed here?
-npx @jeonhui/agentbridge-cli serve     # start the local runtime, prints URL + token
-```
+Building with an AI assistant? Point it at [`llms.txt`](https://github.com/Jeonhui/agent-bridge/blob/main/llms.txt) — a compact, self-contained
+guide to the whole API written for LLMs.
 
 ## Quickstart — first reply in a minute
 
