@@ -293,6 +293,7 @@ unsupported.
 
 | Example | Shows | Needs |
 | --- | --- | --- |
+| [`examples/chat`](https://github.com/Jeonhui/agent-bridge/tree/main/examples/chat) | **A complete host app**: terminal chat, tools, interactive y/N approvals | Claude CLI |
 | [`examples/basic`](https://github.com/Jeonhui/agent-bridge/tree/main/examples/basic) | Stream a reply into your program | Claude CLI |
 | [`examples/mcp`](https://github.com/Jeonhui/agent-bridge/tree/main/examples/mcp) | Give the agent your tools, watch the calls | Claude CLI |
 | [`examples/tools`](https://github.com/Jeonhui/agent-bridge/tree/main/examples/tools) | Approval flow, no agent required | nothing |

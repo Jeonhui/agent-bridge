@@ -34,6 +34,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/agentbridge
 
+  examples/chat:
+    dependencies:
+      '@jeonhui/agentbridge':
+        specifier: workspace:*
+        version: link:../../packages/agentbridge
+
   examples/mcp:
     dependencies:
       '@jeonhui/agentbridge':

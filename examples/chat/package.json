@@ -1,0 +1,9 @@
+{
+  "name": "@agentbridge-example/chat",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AgentBridge example: a terminal chat app with tools and interactive approvals",
+  "scripts": { "start": "node index.mjs" },
+  "dependencies": { "@jeonhui/agentbridge": "workspace:*" }
+}

@@ -703,3 +703,20 @@ The web answer, recorded in the README: the runtime is Node-only by nature (it s
 reads keychains), but a web page bundles /sdk and talks to the local daemon over REST + WebSocket.
 
 0.1.4 ships this plus a README Bundling section with the verified table.
+
+[2026-08-16] examples/chat: the first complete host application
+
+The existing examples were single-shot scripts; none showed an actual application owning the UI.
+agent-chat is a terminal chat app: streaming replies rendered by the host, a sandboxed filesystem
+MCP server the app provides (dependency-free, ~90 lines, readable in one sitting), and ask-mode
+approvals answered interactively with y/N at the prompt.
+
+Building it caught a host-pattern bug worth teaching: the approval handler awaited rl.question,
+and when piped stdin hit EOF, readline closed and the await rejected. Event handlers run outside
+any try/catch of the host, so the async rejection crashed the process - and the agent was left
+blocked mid-turn. The hardened handler (now in the example, commented as the pattern to copy)
+always answers: a closed UI becomes an immediate deny, and no rejection can escape.
+
+Verified against the real CLI both ways: interactive approve writes the haiku and the loop
+continues; stdin-closed auto-denies, the agent explains the denial to the user in its reply, the
+file is untouched, and the app exits 0.

@@ -293,6 +293,7 @@ unsupported.
 
 | Example | Shows | Needs |
 | --- | --- | --- |
+| [`examples/chat`](examples/chat) | **A complete host app**: terminal chat, tools, interactive y/N approvals | Claude CLI |
 | [`examples/basic`](examples/basic) | Stream a reply into your program | Claude CLI |
 | [`examples/mcp`](examples/mcp) | Give the agent your tools, watch the calls | Claude CLI |
 | [`examples/tools`](examples/tools) | Approval flow, no agent required | nothing |
