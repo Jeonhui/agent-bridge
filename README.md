@@ -210,6 +210,51 @@ await new AgentBridgeMcpServer({ agent }).serveStdio();
 
 Call depth is capped (default 2), so a session AgentBridge created cannot recurse into itself.
 
+### Use it from a web page
+
+The runtime itself is Node-only — it spawns CLI processes and reads the OS keychain, which no
+browser allows. The web story is a split: the daemon runs locally, and the page talks to it.
+
+```typescript
+// this file can be bundled for the browser (~13 kB)
+import { createClient } from "@jeonhui/agentbridge/sdk";
+
+const client = createClient({
+  transport: "http",
+  baseUrl: "http://127.0.0.1:8760",
+  token,                                   // from ~/.agentbridge/runtime.json
+  webSocket: (url) => new WebSocket(url),  // the browser's own WebSocket
+});
+```
+
+`@jeonhui/agentbridge/sdk` deliberately imports nothing from Node, so
+`esbuild --platform=browser` (or Vite/webpack) bundles it clean. Everything else in the package is
+server-side.
+
+---
+
+## Bundling
+
+Verified with esbuild against the published package:
+
+| Target | Works |
+| --- | --- |
+| `--platform=node --format=cjs` | ✅ as-is |
+| `--platform=node --format=esm` (single file) | ✅ with the standard banner¹ |
+| `--platform=browser`, importing `/sdk` only | ✅ as-is, ~13 kB |
+| `--packages=external` (either format) | ✅ as-is |
+
+¹ Some dependencies use dynamic `require`, which esbuild's single-file ESM output cannot express.
+The usual one-liner fixes it:
+
+```bash
+esbuild app.ts --bundle --platform=node --format=esm \
+  --banner:js="import{createRequire}from'node:module';const require=createRequire(import.meta.url);"
+```
+
+The permission prompt tool survives bundling by design: it is dependency-free source the library
+writes to a temp file at runtime, not a file that has to be found inside `node_modules`.
+
 ---
 
 ## Good to know

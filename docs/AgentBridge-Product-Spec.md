@@ -460,7 +460,7 @@ agentbridge/
 │       │   ├── permission/          # policy, approval queue, prompt hook gateway
 │       │   ├── runtime/             # REST and WebSocket server
 │       │   └── sdk/                 # embedded and HTTP backends behind one interface
-│       └── bin/approval-mcp.mjs     # the permission prompt tool the agent CLI launches
+│       └── (the permission prompt tool is generated to a temp file at runtime, 25.4)
 ├── apps/
 │   └── runtime/                     # @jeonhui/agentbridge-cli, the `agentbridge` daemon
 ├── examples/
@@ -1925,7 +1925,8 @@ the decision has to cross a process boundary to reach the host:
 ```text
 agent decides to call a tool
    ▼
-CLI invokes the permission prompt tool (an MCP server AgentBridge injected)
+CLI invokes the permission prompt tool (a dependency-free MCP server AgentBridge writes to a
+   temp file at runtime, so it survives being bundled)
    ▼
 that process POSTs to the approval gateway: loopback, token minted per start
    ▼

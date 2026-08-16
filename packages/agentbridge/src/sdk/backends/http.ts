@@ -1,4 +1,7 @@
-import { AgentBridgeError, type AgentEvent, type AgentEventOf, type AgentEventType, type Unsubscribe } from "../../core/index.js";
+// AgentBridgeError comes from its own file rather than the core barrel: the barrel pulls in
+// storage and secrets (node:fs, node:child_process), which would sink a browser bundle of /sdk.
+import { AgentBridgeError } from "../../core/errors/AgentBridgeError.js";
+import type { AgentEvent, AgentEventOf, AgentEventType, Unsubscribe } from "../../core/index.js";
 
 import type {
   AgentBridgeClient,

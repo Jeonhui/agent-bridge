@@ -672,3 +672,34 @@ Also learned: CJS require() of this ESM package works on modern Node (require-es
 on their own config before ever reaching our subpath exports.
 
 0.1.3 ships these plus the rewritten README onto the npm page.
+
+[2026-08-16] Host-app audit: bundlers and the browser
+
+Asked whether other apps can import this easily, so other apps were simulated: an esbuild-bundled
+host (the shape of an Electron main process or a packaged server), TypeScript under node16
+resolution, a CJS host, and a browser page.
+
+Found and fixed:
+- Bundling broke on our own code. The permission prompt tool shipped as a file resolved with
+  createRequire(import.meta.url) - import.meta is illegal in CJS output, and the resolved path
+  points nowhere once code leaves node_modules. The tool is now dependency-free source (hand-rolled
+  newline-delimited JSON-RPC, no MCP SDK) embedded as a string and written to a temp file at
+  runtime, so it travels inside any bundle. Verified against the real CLI in all three ask modes.
+  One trap inside the fix: the source crosses three escaping layers (writer -> TS template ->
+  generated file), and a single \n became a real newline in the generated file, producing a syntax
+  error. The handshake was tested by speaking MCP to the generated server directly before going
+  near the real CLI again.
+- /sdk could not bundle for the browser because it value-imported AgentBridgeError through the core
+  barrel, dragging node:fs and node:child_process along. It now deep-imports the error class, and
+  esbuild --platform=browser produces a ~13 kB bundle of the HTTP client.
+- dist/testing (a test-only helper carrying import.meta) shipped for nothing; excluded.
+
+Verified matrix, all from a packed tarball: CJS bundle runs as-is; single-file ESM runs with the
+standard createRequire banner (a dependency uses dynamic require - esbuild limitation, documented);
+browser bundle of /sdk builds clean; TypeScript node16 resolution has zero errors; the bundled host
+generates the prompt tool from inside the bundle.
+
+The web answer, recorded in the README: the runtime is Node-only by nature (it spawns CLIs and
+reads keychains), but a web page bundles /sdk and talks to the local daemon over REST + WebSocket.
+
+0.1.4 ships this plus a README Bundling section with the verified table.

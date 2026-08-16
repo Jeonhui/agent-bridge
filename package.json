@@ -1,6 +1,6 @@
 {
   "name": "agentbridge",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "Local AI Agent Runtime + MCP Infrastructure",
   "license": "MIT",
